@@ -298,3 +298,57 @@ test("--json includes consistency findings when requested", () => {
   assert.ok(kinds.includes("casing"), `expected casing finding: ${result.stdout}`);
   assert.ok(kinds.includes("variants"), `expected variants finding: ${result.stdout}`);
 });
+
+test("--agent emits a numbered, confidence-ordered task list", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  fs.writeFileSync(doc, "teh wrod\nxyzzyq\n");
+  const result = run(["--agent", "--no-repo-vocab", doc]);
+  assert.equal(result.status, 1);
+  const out = result.stdout;
+  assert.match(out, /^# SPELLCHECK TASK LIST/);
+  assert.match(out, /# issues: 3 \(2 fixable, 1 review\)/);
+  // confidence ordering: both fix:high before the review item
+  const highIndex = out.indexOf("[fix:high] line 1: replace 'teh' with 'the'");
+  const reviewIndex = out.indexOf("[review] line 2: 'xyzzyq'");
+  assert.ok(highIndex > -1 && reviewIndex > highIndex, out);
+  // no-suggestion items carry the bless command
+  assert.match(out, /--add-word xyzzyq/);
+});
+
+test("--agent on a clean file prints NO ISSUES and exits 0", () => {
+  const result = run(["--agent", path.join(root, "test", "fixtures", "clean.txt")]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /# NO ISSUES/);
+});
+
+test("--agent and --json are mutually exclusive", () => {
+  const result = run(["--agent", "--json", path.join(root, "test.txt")]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /mutually exclusive/);
+});
+
+test("learning loop: --fix persists pairs, later runs honor them as top suggestion", () => {
+  const dir = tmpDir();
+  const correctionsFile = path.join(dir, "learned.txt");
+  const firstDoc = path.join(dir, "first.txt");
+  fs.writeFileSync(firstDoc, "teh wrod\n");
+
+  const fixed = run(["--fix", "--no-repo-vocab", "--corrections", correctionsFile, firstDoc]);
+  assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);
+  assert.match(fixed.stdout, /Learned 2 correction\(s\)/);
+  const learned = fs.readFileSync(correctionsFile, "utf8");
+  assert.match(learned, /teh=the/);
+  assert.match(learned, /wrod=word/);
+
+  // A new file with the same typo now gets the learned fix as top suggestion.
+  const secondDoc = path.join(dir, "second.txt");
+  fs.writeFileSync(secondDoc, "wrod again\n");
+  const check = run(["--no-repo-vocab", "--corrections", correctionsFile, secondDoc]);
+  assert.match(check.stdout, /'wrod' misspelled on line\(s\): 1\. Suggestions: word,/);
+
+  // Overriding the learned fix flips the ranking deterministically.
+  fs.writeFileSync(correctionsFile, "wrod=world\n");
+  const overridden = run(["--no-repo-vocab", "--corrections", correctionsFile, secondDoc]);
+  assert.match(overridden.stdout, /Suggestions: world,/);
+});

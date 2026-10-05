@@ -6,6 +6,7 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ## Features
 
+- **Agent loop** (`--agent`) — emits a numbered, confidence-ordered task list (`[fix:high]`/`[fix:medium]`/`[review]`) with embedded self-service commands, so AI agents can consume it, act, and re-check. `--fix` persists every pair it applies to `.spellcorrections`, and learned corrections become the top suggestion on future runs — the tool gets more accurate with every use.
 - **Terminology-consistency lint** (`--consistency`) — catches `Github` vs `GitHub`, `backend` vs `back-end`, `Javascript` vs `JavaScript`: the casing/separator drift that AI-generated docs are notorious for. Deterministic, list-free for separator variants, 50ms.
 - **Repo-native vocabulary** — the tool learns your project's language automatically: dependency names from `package.json`/`Cargo.toml`/`go.mod`/`pyproject.toml`/`requirements.txt` are trusted, and code identifiers + filenames are blessed at 3+ occurrences. Zero config, deterministic, no LLM.
 - **SymSpell suggestions** — corrects typos that Hunspell-style suggesters miss (`teh→the`, `wrod→word`, `tommorow→tomorrow`), ranked by edit distance and word frequency, built lazily in ~1s
@@ -60,6 +61,8 @@ node index.ts -                   # stdin, explicit
 | `--repo-root <dir>` | Project root for repo vocabulary (default: cwd) |
 | `--vocab-count <n>` | Occurrences needed to bless a code word (default: 3) |
 | `--consistency` | Also run terminology-consistency checks (`Github` vs `GitHub`, `backend` vs `back-end`) |
+| `--agent` | Agent-oriented task list: numbered, action-tagged, confidence-ordered |
+| `--corrections <path>` | Learned-corrections file (default: `.spellcorrections`) |
 | `--verbose` | Print repo vocabulary stats to stderr |
 | `-h`, `--help` | Show help |
 
@@ -97,6 +100,34 @@ doc.md: terminology: 'backend' vs 'back-end' — prefer 'backend' (line(s): 3)
 ```
 
 Findings respect Markdown mode and `spellcheck:` directives, appear in `--json` output under `consistency`, and count toward the exit code.
+
+### The agent loop (`--agent` + learned corrections)
+
+`--agent` renders findings as a task list built for AI agents (or humans who like checklists):
+
+```
+$ node index.ts --agent --consistency doc.md
+# SPELLCHECK TASK LIST
+# file: doc.md
+# issues: 3 (2 fixable, 1 review)
+# self-service: node index.ts --consistency --fix doc.md
+1. [fix:high] line 1: replace 'teh' with 'the' (alternatives: tea, tee)
+2. [fix:high] line 1: replace 'wrod' with 'word' (alternatives: prod, trod)
+3. [review] consistency line 2: 'Github' should be 'GitHub'
+4. [review] line 3: 'xyzzyq' has no suggestion — rewrite or bless: node index.ts --add-word xyzzyq
+```
+
+Confidence is deterministic: `high` = top suggestion at edit distance 1, `medium` = distance 2, `review` = no suggestion or a consistency finding.
+
+**Learning loop:** every `--fix` persists the pairs it applied to `.spellcorrections` (`typo=fix` per line). Learned corrections become the top suggestion on all future runs — override the ranking any time by editing the file:
+
+```
+# .spellcorrections
+teh=the
+wrod=word
+```
+
+The loop for AI agents: run `--agent` → apply fixes (or `--fix` directly) → re-run until `# NO ISSUES`. Words the agent decides to keep get blessed with `--add-word`, and the tool never flags them again.
 
 Add words as you go:
 
@@ -170,7 +201,6 @@ npm test
 
 ## Roadmap
 
-- Agent-facing output (`--agent` task-list format) and auto-blessing on `--fix`
 - Custom brand/terminology lists in `.spelldict` or `spellcheck.json`
 - Multiple files / glob patterns with directory walking
 - `spellcheck.json` config file (words, ignorePaths, minLength)

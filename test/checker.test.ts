@@ -145,3 +145,22 @@ test("scanText returns occurrences for --fix workflows", () => {
   );
   for (const o of occurrences) assert.ok(Array.isArray(o.suggestions));
 });
+
+test("learned corrections become the top suggestion", () => {
+  const result = analyzeText("wrod", {
+    corrections: new Map([["wrod", "world"]]),
+  });
+  const entry = result.get("wrod");
+  assert.ok(entry, "expected 'wrod' to be flagged");
+  assert.equal(entry.suggestions[0], "world");
+  assert.equal(entry.topDistance, 1); // learned corrections count as distance 1
+});
+
+test("occurrences carry topDistance for confidence scoring", () => {
+  const occurrences = scanText("teh xyzzyq");
+  const teh = occurrences.find((o) => o.word === "teh");
+  assert.equal(teh?.topDistance, 1);
+  const hopeless = occurrences.find((o) => o.word === "xyzzyq");
+  assert.equal(hopeless?.topDistance, undefined);
+  assert.deepEqual(hopeless?.suggestions, []);
+});

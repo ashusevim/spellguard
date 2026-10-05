@@ -8,12 +8,16 @@ import { stripMarkdown } from "./markdown.ts";
 export interface Misspelling {
   lines: number[];
   suggestions: string[];
+  /** Damerau-Levenshtein distance of the top suggestion (undefined if none). */
+  topDistance?: number;
 }
 
 export interface Occurrence {
   word: string;
   line: number;
   suggestions: string[];
+  /** Damerau-Levenshtein distance of the top suggestion (undefined if none). */
+  topDistance?: number;
 }
 
 export interface CheckOptions {
@@ -25,6 +29,8 @@ export interface CheckOptions {
   minLength?: number;
   /** Preprocess the text as Markdown (code blocks, inline code, frontmatter are skipped). */
   markdown?: boolean;
+  /** Learned corrections (typo -> fix) applied as the top suggestion. */
+  corrections?: Map<string, string>;
 }
 
 const MAX_SUGGESTIONS = 3;
@@ -81,9 +87,17 @@ let suggestionEngine: SymSpell | null = null;
 let engineVocabKey = "";
 const suggestionCache = new Map<string, string[]>();
 
-function getSuggestions(word: string, extraWords: string[]): string[] {
+function getSuggestions(
+  word: string,
+  extraWords: string[],
+  corrections: Map<string, string>,
+): { suggestions: string[]; topDistance?: number } {
   const key = word.toLowerCase();
-  const cached = suggestionCache.get(key);
+  const learnedFix = corrections.get(key);
+  // The cached value depends on the word's learned correction, so it must
+  // be part of the cache key (the engine itself is keyed on extraWords).
+  const cacheKey = learnedFix ? `${key}\u0001${learnedFix.toLowerCase()}` : key;
+  const cached = suggestionCache.get(cacheKey);
   if (cached) return cached;
 
   if (!suggestionEngine || engineVocabKey !== extraWords.join("\u0000")) {
@@ -98,14 +112,33 @@ function getSuggestions(word: string, extraWords: string[]): string[] {
     engineVocabKey = vocabKey;
   }
 
-  const suggestions = suggestionEngine.suggest(key, MAX_SUGGESTIONS);
-  suggestionCache.set(key, suggestions);
-  return suggestions;
+  const ranked = suggestionEngine.suggestWithDistance(key, MAX_SUGGESTIONS);
+  let suggestions = ranked.map((s) => s.word);
+  let topDistance = ranked[0]?.distance;
+
+  // A learned correction always ranks first.
+  if (learnedFix && learnedFix.toLowerCase() !== key) {
+    suggestions = [learnedFix, ...suggestions.filter((s) => s !== learnedFix)].slice(
+      0,
+      MAX_SUGGESTIONS,
+    );
+    topDistance = 1;
+  }
+
+  const result = { suggestions, topDistance };
+  suggestionCache.set(cacheKey, result);
+  return result;
 }
 
 /** Scans text and returns every misspelling occurrence with its line number. */
 export function scanText(text: string, options: CheckOptions = {}): Occurrence[] {
-  const { extraWords = [], ignoreWords = [], minLength = 1, markdown = false } = options;
+  const {
+    extraWords = [],
+    ignoreWords = [],
+    minLength = 1,
+    markdown = false,
+    corrections = new Map(),
+  } = options;
   const known = new Set(extraWords.map((word) => word.toLowerCase()));
   const ignored = new Set(ignoreWords.map((word) => word.toLowerCase()));
   const occurrences: Occurrence[] = [];
@@ -130,11 +163,8 @@ export function scanText(text: string, options: CheckOptions = {}): Occurrence[]
         const key = clean.toLowerCase();
         if (ignored.has(key) || known.has(key) || dictionary.check(clean)) continue;
 
-        occurrences.push({
-          word: clean,
-          line: lineNumber,
-          suggestions: getSuggestions(clean, extraWords),
-        });
+        const { suggestions, topDistance } = getSuggestions(clean, extraWords, corrections);
+        occurrences.push({ word: clean, line: lineNumber, suggestions, topDistance });
       }
     }
   }
@@ -195,13 +225,13 @@ export function preprocessLines(text: string, markdown = false): ProcessedLine[]
 /** Analyzes text and returns one aggregated entry per misspelled word. */
 export function analyzeText(text: string, options: CheckOptions = {}): Map<string, Misspelling> {
   const corrections = new Map<string, Misspelling>();
-  for (const { word, line, suggestions } of scanText(text, options)) {
+  for (const { word, line, suggestions, topDistance } of scanText(text, options)) {
     const entry = corrections.get(word);
     if (entry) {
       // Multiple occurrences on the same line report the line once.
       if (entry.lines[entry.lines.length - 1] !== line) entry.lines.push(line);
     } else {
-      corrections.set(word, { lines: [line], suggestions });
+      corrections.set(word, { lines: [line], suggestions, topDistance });
     }
   }
   return corrections;

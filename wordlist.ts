@@ -26,3 +26,33 @@ export function appendWords(filePath: string, words: string[]): number {
   }
   return fresh.length;
 }
+
+/**
+ * Learned corrections: `typo=fix` per line, `#` comments allowed.
+ * Written by --fix, honored as top suggestion on future runs.
+ */
+export function loadCorrections(filePath: string): Map<string, string> {
+  const corrections = new Map<string, string>();
+  if (!fs.existsSync(filePath)) return corrections;
+  for (const line of fs.readFileSync(filePath, "utf8").split("\n")) {
+    const cleaned = line.replace(/#.*$/, "").trim();
+    if (cleaned === "") continue;
+    const eq = cleaned.indexOf("=");
+    if (eq <= 0 || eq === cleaned.length - 1) continue;
+    const typo = cleaned.slice(0, eq).trim().toLowerCase();
+    const fix = cleaned.slice(eq + 1).trim();
+    if (typo !== "" && fix !== "") corrections.set(typo, fix);
+  }
+  return corrections;
+}
+
+/** Appends typo=fix pairs, skipping duplicates. Returns the number added. */
+export function appendCorrections(filePath: string, pairs: [string, string][]): number {
+  if (pairs.length === 0) return 0;
+  const existing = loadCorrections(filePath);
+  const fresh = pairs.filter(([typo, fix]) => existing.get(typo.toLowerCase()) !== fix);
+  if (fresh.length > 0) {
+    fs.appendFileSync(filePath, fresh.map(([typo, fix]) => `${typo}=${fix}`).join("\n") + "\n");
+  }
+  return fresh.length;
+}

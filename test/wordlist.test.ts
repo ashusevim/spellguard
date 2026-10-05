@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { appendWords, loadWordlist } from "../wordlist.ts";
+import { appendWords, loadWordlist, loadCorrections, appendCorrections } from "../wordlist.ts";
 
 function tmpFile(content = ""): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spelldict-"));
@@ -40,4 +40,32 @@ test("appendWords with no new words writes nothing", () => {
   const added = appendWords(file, ["ALPHA"]);
   assert.equal(added, 0);
   assert.deepEqual(loadWordlist(file), ["alpha"]);
+});
+
+test("loadCorrections parses typo=fix pairs, skips comments and junk", () => {
+  const file = tmpFile("# learned\nteh=the\nwrod = word\nbroken\n=nofix\nnofix=\n");
+  const corrections = loadCorrections(file);
+  assert.deepEqual(
+    [...corrections.entries()].sort(),
+    [
+      ["teh", "the"],
+      ["wrod", "word"],
+    ],
+  );
+});
+
+test("loadCorrections returns empty for missing files", () => {
+  assert.equal(loadCorrections("/nonexistent/corrections.txt").size, 0);
+});
+
+test("appendCorrections dedupes case-insensitively", () => {
+  const file = tmpFile("teh=the\n");
+  const added = appendCorrections(file, [
+    ["TEH", "the"],
+    ["wrod", "word"],
+  ]);
+  assert.equal(added, 1);
+  const corrections = loadCorrections(file);
+  assert.equal(corrections.get("teh"), "the");
+  assert.equal(corrections.get("wrod"), "word");
 });

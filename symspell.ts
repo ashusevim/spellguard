@@ -73,6 +73,11 @@ export class SymSpell {
 
   /** Returns up to `limit` suggestions, best first (distance, commonality, length). */
   suggest(word: string, limit: number): string[] {
+    return this.suggestWithDistance(word, limit).map((s) => s.word);
+  }
+
+  /** Same as suggest(), but each entry carries its Damerau-Levenshtein distance. */
+  suggestWithDistance(word: string, limit: number): { word: string; distance: number }[] {
     const query = word.toLowerCase();
     if (query.length < 2) return [];
 
@@ -98,7 +103,7 @@ export class SymSpell {
         Math.abs(a.word.length - query.length) - Math.abs(b.word.length - query.length) ||
         a.word.localeCompare(b.word),
     );
-    return scored.slice(0, limit).map((s) => s.word);
+    return scored.slice(0, limit);
   }
 }
 

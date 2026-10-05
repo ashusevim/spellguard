@@ -4,10 +4,11 @@ import path from "node:path";
 import process from "node:process";
 import { analyzeText, scanText, type Occurrence } from "./checker.ts";
 import { findInconsistencies, type ConsistencyFinding } from "./consistency.ts";
-import { appendWords, loadWordlist } from "./wordlist.ts";
+import { appendWords, loadWordlist, loadCorrections, appendCorrections } from "./wordlist.ts";
 import { harvestRepoVocab } from "./repo-vocab.ts";
 
 const DEFAULT_DICT = ".spelldict";
+const DEFAULT_CORRECTIONS = ".spellcorrections";
 
 const USAGE = `Usage: node index.ts [options] <file | ->
        cat file | node index.ts
@@ -28,6 +29,11 @@ Options:
   --vocab-count <n>    Occurrences needed to bless a code word (default: 3)
   --consistency        Also run terminology-consistency checks (Github vs
                        GitHub, backend vs back-end)
+  --agent              Emit an agent-oriented task list: numbered, action-tagged
+                       ([fix:high]/[fix:medium]/[review]), confidence-ordered
+  --corrections <path> Learned-corrections file (default: .spellcorrections).
+                       --fix appends the pairs it applied; they become the top
+                       suggestion on future runs
   --verbose            Print repo vocabulary stats to stderr
 
 Wordlist: .spelldict in the current directory is loaded automatically if present.
@@ -50,6 +56,8 @@ interface CliOptions {
   repoRoot: string;
   vocabCount: number;
   consistency: boolean;
+  agent: boolean;
+  correctionsPath: string;
   verbose: boolean;
   useStdin: boolean;
   file: string;
@@ -111,6 +119,8 @@ function main(): void {
     repoRoot: "",
     vocabCount: 3,
     consistency: false,
+    agent: false,
+    correctionsPath: "",
     verbose: false,
     useStdin: false,
     file: "",
@@ -181,6 +191,12 @@ function main(): void {
       case "--consistency":
         opts.consistency = true;
         break;
+      case "--agent":
+        opts.agent = true;
+        break;
+      case "--corrections":
+        opts.correctionsPath = value();
+        break;
       case "-":
       case "--stdin":
         opts.useStdin = true;
@@ -217,6 +233,11 @@ function main(): void {
       process.exit(2);
     }
     opts.useStdin = true; // piped input with no file argument
+  }
+
+  if (opts.agent && opts.json) {
+    console.error("--agent and --json are mutually exclusive");
+    process.exit(2);
   }
 
   // Markdown mode: forced by flag, auto-enabled for Markdown file extensions.
@@ -262,11 +283,15 @@ function main(): void {
     process.exit(2);
   }
 
+  const correctionsPath = opts.correctionsPath || DEFAULT_CORRECTIONS;
+  const learned = loadCorrections(correctionsPath);
+
   const checkOptions = {
     extraWords,
     ignoreWords: opts.ignoreWords,
     minLength: opts.minLength,
     markdown: opts.markdown,
+    corrections: learned,
   };
 
   // --fix / --diff: rewrite lines with top suggestions.
@@ -305,7 +330,17 @@ function main(): void {
     if (!opts.useStdin) fs.writeFileSync(opts.file, lines.join("\n"));
     else process.stdout.write(lines.join("\n"));
 
+    // Learning loop: persist the pairs we just applied so they become the
+    // top suggestion for future runs of the same typo.
+    const appliedPairs = new Map<string, string>();
+    for (const occurrence of fixable) {
+      if (occurrence.suggestions.length > 0) {
+        appliedPairs.set(occurrence.word.toLowerCase(), occurrence.suggestions[0]);
+      }
+    }
+    const learnedCount = appendCorrections(correctionsPath, [...appliedPairs]);
     console.log(`Fixed ${fixable.length} misspelling(s) in ${label}`);
+    if (learnedCount > 0) console.log(`Learned ${learnedCount} correction(s) to ${correctionsPath}`);
     if (unfixable.size > 0) {
       console.error(`No suggestions for: ${[...unfixable].join(", ")}`);
       process.exit(1);
@@ -322,6 +357,11 @@ function main(): void {
     const added = appendWords(dictTarget, [...corrections.keys()]);
     console.log(`Added ${added} word(s) to ${dictTarget}`);
     process.exit(0);
+  }
+
+  if (opts.agent) {
+    console.log(renderAgentTaskList(label, corrections, consistencyFindings, opts));
+    process.exit(corrections.size + consistencyFindings.length === 0 ? 0 : 1);
   }
 
   if (opts.json) {
@@ -366,6 +406,81 @@ function splitWords(value: string): string[] {
     .split(",")
     .map((word) => word.trim())
     .filter((word) => word !== "");
+}
+
+interface AgentTask {
+  confidence: 0 | 1 | 2; // 0 = high, 1 = medium, 2 = review
+  line: number;
+  text: string;
+}
+
+function renderAgentTaskList(
+  label: string,
+  corrections: Map<string, { lines: number[]; suggestions: string[] }>,
+  findings: ConsistencyFinding[],
+  opts: CliOptions,
+): string {
+  const tasks: AgentTask[] = [];
+  const seen = new Set<string>();
+
+  for (const [word, info] of corrections) {
+    for (const line of info.lines) {
+      const dedupeKey = `${word.toLowerCase()}:${line}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      if (info.suggestions.length === 0) {
+        tasks.push({
+          confidence: 2,
+          line,
+          text: `[review] line ${line}: '${word}' has no suggestion — rewrite or bless: ${cliCommand(opts, ["--add-word", word])}`,
+        });
+      } else {
+        const confidence: "high" | "medium" = info.topDistance === 1 ? "high" : "medium";
+        const alternatives = info.suggestions.slice(1);
+        const altText = alternatives.length > 0 ? ` (alternatives: ${alternatives.join(", ")})` : "";
+        tasks.push({
+          confidence: confidence === "high" ? 0 : 1,
+          line,
+          text: `[fix:${confidence}] line ${line}: replace '${word}' with '${info.suggestions[0]}'${altText}`,
+        });
+      }
+    }
+  }
+
+  for (const finding of findings) {
+    const forms = finding.forms.map((f) => f.form);
+    const line = Math.min(...finding.lines);
+    const text =
+      finding.kind === "casing"
+        ? `[review] consistency line ${line}: '${forms[0]}' should be '${finding.recommendation}'`
+        : `[review] consistency line ${line}: ${forms.map((f) => `'${f}'`).join(" vs ")} — prefer '${finding.recommendation}'`;
+    tasks.push({ confidence: 2, line, text });
+  }
+
+  tasks.sort((a, b) => a.confidence - b.confidence || a.line - b.line);
+
+  const fixable = tasks.filter((t) => t.confidence !== 2).length;
+  const header = tasks.length === 0
+    ? ["# SPELLCHECK TASK LIST", `# file: ${label}`, "# NO ISSUES"]
+    : [
+        "# SPELLCHECK TASK LIST",
+        `# file: ${label}`,
+        `# issues: ${tasks.length} (${fixable} fixable, ${tasks.length - fixable} review)`,
+        ...(!opts.useStdin
+          ? [`# self-service: ${cliCommand(opts, ["--fix", label])}`]
+          : []),
+      ];
+
+  return [...header, ...tasks.map((t, i) => `${i + 1}. ${t.text}`)].join("\n");
+}
+
+function cliCommand(opts: CliOptions, args: string[]): string {
+  const flags: string[] = [];
+  if (opts.consistency) flags.push("--consistency");
+  if (opts.markdown) flags.push("--markdown");
+  if (opts.correctionsPath) flags.push("--corrections", opts.correctionsPath);
+  return ["node index.ts", ...flags, ...args].join(" ");
 }
 
 main();
