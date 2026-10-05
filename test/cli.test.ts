@@ -10,7 +10,9 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(root, "index.ts");
 
 function run(extraArgs: string[], input?: string) {
-  return spawnSync(process.execPath, [cli, ...extraArgs], {
+  // --no-repo-vocab keeps fixture expectations stable: this repo's own test
+  // files contain "teh"/"wrod" 3+ times, so default harvesting would bless them.
+  return spawnSync(process.execPath, [cli, "--no-repo-vocab", ...extraArgs], {
     encoding: "utf8",
     cwd: root,
     input: input ?? "",
@@ -204,4 +206,59 @@ test("CLI --markdown flag forces markdown mode on plain files", () => {
   const result = run(["--markdown", txtFile]);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /No errors, everything is good/);
+});
+
+test("repo vocabulary is on by default: dependency names pass without .spelldict", () => {
+  const repo = tmpDir();
+  fs.writeFileSync(
+    path.join(repo, "package.json"),
+    JSON.stringify({ name: "demo", dependencies: { kuberconnect: "^1.0.0" } }),
+  );
+  const doc = path.join(repo, "doc.txt");
+  fs.writeFileSync(doc, "the kuberconnect service\n");
+  const result = spawnSync(process.execPath, [cli, doc], {
+    encoding: "utf8",
+    cwd: repo, // repo vocab is harvested relative to cwd
+    input: "",
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /No errors, everything is good/);
+});
+
+test("--no-repo-vocab reverts to dictionary-only checking", () => {
+  const repo = tmpDir();
+  fs.writeFileSync(
+    path.join(repo, "package.json"),
+    JSON.stringify({ name: "demo", dependencies: { kuberconnect: "^1.0.0" } }),
+  );
+  const doc = path.join(repo, "doc.txt");
+  fs.writeFileSync(doc, "the kuberconnect service\n");
+  const result = spawnSync(process.execPath, [cli, "--no-repo-vocab", doc], {
+    encoding: "utf8",
+    cwd: repo,
+    input: "",
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /'kuberconnect' misspelled/);
+});
+
+test("--verbose reports repo vocabulary stats on stderr", () => {
+  const repo = tmpDir();
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ name: "demo" }));
+  const doc = path.join(repo, "doc.txt");
+  fs.writeFileSync(doc, "fine\n");
+  const result = spawnSync(process.execPath, [cli, "--verbose", "--no-repo-vocab", doc], {
+    encoding: "utf8",
+    cwd: repo,
+    input: "",
+  });
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stderr, /repo vocab/); // disabled -> no stats
+
+  const verbose = spawnSync(process.execPath, [cli, "--verbose", doc], {
+    encoding: "utf8",
+    cwd: repo,
+    input: "",
+  });
+  assert.match(verbose.stderr, /repo vocab: \+\d+ words/);
 });

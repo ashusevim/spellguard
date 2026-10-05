@@ -6,6 +6,7 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ## Features
 
+- **Repo-native vocabulary** — the tool learns your project's language automatically: dependency names from `package.json`/`Cargo.toml`/`go.mod`/`pyproject.toml`/`requirements.txt` are trusted, and code identifiers + filenames are blessed at 3+ occurrences. Zero config, deterministic, no LLM.
 - **SymSpell suggestions** — corrects typos that Hunspell-style suggesters miss (`teh→the`, `wrod→word`, `tommorow→tomorrow`), ranked by edit distance and word frequency, built lazily in ~1s
 - **Accurate spell checking** using the US English dictionary
 - **Identifier splitting** — `getSubcribeName` is checked as `get Subcribe Name`; camelCase, PascalCase, snake_case, kebab-case
@@ -54,6 +55,10 @@ node index.ts -                   # stdin, explicit
 | `--markdown` | Force Markdown mode (auto-enabled for `.md`/`.markdown`/`.mdx`) |
 | `--fix` | Replace every misspelling with its top suggestion (case-preserving) |
 | `--diff` | Print the changes `--fix` would make; write nothing |
+| `--no-repo-vocab` | Don't derive vocabulary from the surrounding project |
+| `--repo-root <dir>` | Project root for repo vocabulary (default: cwd) |
+| `--vocab-count <n>` | Occurrences needed to bless a code word (default: 3) |
+| `--verbose` | Print repo vocabulary stats to stderr |
 | `-h`, `--help` | Show help |
 
 ### Project wordlist
@@ -66,6 +71,15 @@ kubernetes
 Kubernetes   # duplicate, ignored
 MyCompanyName
 ```
+
+### Repo-native vocabulary (on by default)
+
+Before checking, the tool reads the surrounding project and derives its vocabulary:
+
+- **Manifests are trusted**: dependency names, project names, and keywords from `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, and `requirements.txt`
+- **Code and filenames are counted**: identifier sub-words (`kubernetsClient` → `kubernets`) are blessed at 3+ occurrences across the repo — so a one-off typo in the code never becomes vocabulary
+
+Dependency directories (`node_modules`, `target`, `vendor`, ...), lockfiles, and minified output are skipped; the walk is capped at 1500 files. Disable with `--no-repo-vocab`, retarget with `--repo-root <dir>`, tune the threshold with `--vocab-count <n>`, inspect with `--verbose`.
 
 Add words as you go:
 
@@ -117,17 +131,18 @@ No errors, everything is good
 ## How It Works
 
 1. **Input**: reads the file (or stdin) as UTF-8
-2. **Markdown mode**: blanks frontmatter, fenced code, inline code, and HTML comments at equal length (line/column offsets preserved)
-3. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
-4. **Directives**: applies `spellcheck:` inline directives before scanning
-5. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
-6. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously) plus the project wordlist
-7. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary ranks candidates by Damerau-Levenshtein distance, then common-word frequency
-8. **Result aggregation**: groups the same misspelling across lines
+2. **Repo vocabulary**: harvests trusted manifest words and count-verified code words from the surrounding project
+3. **Markdown mode**: blanks frontmatter, fenced code, inline code, and HTML comments at equal length (line/column offsets preserved)
+4. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
+5. **Directives**: applies `spellcheck:` inline directives before scanning
+6. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
+7. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously), the project wordlist, and the repo vocabulary
+8. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary plus repo words ranks candidates by Damerau-Levenshtein distance, then common-word frequency
+9. **Result aggregation**: groups the same misspelling across lines
 
 ## Development
 
-The logic lives in `checker.ts` (scanning), `symspell.ts` (suggestion engine), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
+The logic lives in `checker.ts` (scanning), `symspell.ts` (suggestion engine), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
 
 Run the test suite (Node's built-in test runner, zero test dependencies):
 
@@ -137,6 +152,8 @@ npm test
 
 ## Roadmap
 
+- Terminology-consistency lint (`Github` vs `GitHub`, `backend` vs `back-end`)
+- Agent-facing output (`--agent` task-list format) and auto-blessing on `--fix`
 - Multiple files / glob patterns with directory walking
 - `spellcheck.json` config file (words, ignorePaths, minLength)
 - Interactive mode (aspell-style y/n/a)

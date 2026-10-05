@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { analyzeText, scanText, type Occurrence } from "./checker.ts";
 import { appendWords, loadWordlist } from "./wordlist.ts";
+import { harvestRepoVocab } from "./repo-vocab.ts";
 
 const DEFAULT_DICT = ".spelldict";
 
@@ -20,6 +22,10 @@ Options:
                        skipped; auto-enabled for .md/.markdown/.mdx files)
   --fix                Replace every misspelling with its top suggestion
   --diff               Print the changes --fix would make; write nothing
+  --no-repo-vocab      Don't derive vocabulary from the surrounding project
+  --repo-root <dir>    Project root for repo vocabulary (default: cwd)
+  --vocab-count <n>    Occurrences needed to bless a code word (default: 3)
+  --verbose            Print repo vocabulary stats to stderr
 
 Wordlist: .spelldict in the current directory is loaded automatically if present.
 Inline directives: spellcheck:disable-line, spellcheck:disable-next-line,
@@ -37,6 +43,10 @@ interface CliOptions {
   markdown: boolean;
   fix: boolean;
   diff: boolean;
+  repoVocab: boolean;
+  repoRoot: string;
+  vocabCount: number;
+  verbose: boolean;
   useStdin: boolean;
   file: string;
 }
@@ -93,6 +103,10 @@ function main(): void {
     markdown: false,
     fix: false,
     diff: false,
+    repoVocab: true,
+    repoRoot: "",
+    vocabCount: 3,
+    verbose: false,
     useStdin: false,
     file: "",
   };
@@ -140,6 +154,24 @@ function main(): void {
         break;
       case "--diff":
         opts.diff = true;
+        break;
+      case "--no-repo-vocab":
+        opts.repoVocab = false;
+        break;
+      case "--repo-root":
+        opts.repoRoot = value();
+        break;
+      case "--vocab-count": {
+        const n = Number.parseInt(value(), 10);
+        if (Number.isNaN(n) || n < 1) {
+          console.error("--vocab-count requires a positive integer");
+          process.exit(2);
+        }
+        opts.vocabCount = n;
+        break;
+      }
+      case "--verbose":
+        opts.verbose = true;
         break;
       case "-":
       case "--stdin":
@@ -197,6 +229,21 @@ function main(): void {
     }
   }
   const extraWords = pathsToLoad.flatMap((dictPath) => loadWordlist(dictPath));
+
+  // Repo-native vocabulary: learn the project's language from its manifests,
+  // identifiers, and filenames (flagged words from a one-off typo need 3+ hits).
+  if (opts.repoVocab) {
+    const harvest = harvestRepoVocab({
+      root: opts.repoRoot || process.cwd(),
+      minWordCount: opts.vocabCount,
+    });
+    extraWords.push(...harvest.words);
+    if (opts.verbose) {
+      console.error(
+        `repo vocab: +${harvest.words.length} words (${harvest.manifestWords} manifest, ${harvest.countedWords} from code) from ${harvest.filesScanned} files`,
+      );
+    }
+  }
 
   const label = opts.useStdin ? "<stdin>" : opts.file;
   let content: string;
