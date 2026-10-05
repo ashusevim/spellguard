@@ -56,3 +56,54 @@ test("suggestions are capped at 3", () => {
   assert.ok(entry, "expected 'teh' to be flagged");
   assert.ok(entry.suggestions.length <= 3);
 });
+
+test("spellcheck:disable-line skips the current line only", () => {
+  const result = analyzeText("teh spellcheck:disable-line\nteh");
+  assert.deepEqual(result.get("teh")?.lines, [2]);
+});
+
+test("spellcheck:disable-next-line skips the following line only", () => {
+  const result = analyzeText("teh spellcheck:disable-next-line\nteh\nteh");
+  assert.deepEqual(result.get("teh")?.lines, [3]);
+});
+
+test("spellcheck:off/on skips everything in between", () => {
+  const result = analyzeText("teh\nspellcheck:off\nteh\nteh\nspellcheck:on\nteh");
+  assert.deepEqual(result.get("teh")?.lines, [1, 6]);
+});
+
+test("directives are case-insensitive", () => {
+  const result = analyzeText("teh // SpellCheck:Disable-Line\nteh");
+  assert.deepEqual(result.get("teh")?.lines, [2]);
+});
+
+test("URLs, emails, and hex blobs are not checked", () => {
+  const result = analyzeText(
+    "visit https://example.com/teh and mail teh@example.com\nid 0xDEADBEEF hash deadbeefcafe1234 fine\nhello teh",
+  );
+  assert.deepEqual([...result.keys()], ["teh"]);
+  assert.deepEqual(result.get("teh")?.lines, [3]);
+});
+
+test("long hex runs are stripped even in mixed case", () => {
+  const result = analyzeText("DeadBeefCafe teh");
+  assert.deepEqual([...result.keys()], ["teh"]);
+});
+
+test("extraWords suppresses flags, matched case-insensitively", () => {
+  const result = analyzeText("Kubernetes kubernets", {
+    extraWords: ["kubernetes", "kubernets"],
+  });
+  assert.equal(result.size, 0);
+});
+
+test("ignoreWords suppresses flags and is case-insensitive", () => {
+  const result = analyzeText("Teh teh", { ignoreWords: ["teh"] });
+  assert.equal(result.size, 0);
+});
+
+test("minLength skips short words", () => {
+  const result = analyzeText("xy hello teh", { minLength: 3 });
+  // "xy" skipped by length; "hello" is valid; "teh" still flagged.
+  assert.deepEqual([...result.keys()], ["teh"]);
+});

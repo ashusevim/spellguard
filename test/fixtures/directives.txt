@@ -1,0 +1,9 @@
+teh should be flagged
+teh spellcheck:disable-line
+teh appears again
+teh spellcheck:disable-next-line
+teh is skipped
+spellcheck:off
+teh inside block
+spellcheck:on
+teh after block
