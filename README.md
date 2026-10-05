@@ -1,99 +1,100 @@
 # TypeScript Spell Checker
 
-A command-line spell checker built with TypeScript that analyzes text files and provides spelling suggestions using the Typo.js library.
+A command-line spell checker built with TypeScript that analyzes text files and provides spelling suggestions using the [Typo.js](https://github.com/cfinke/Typo.js) library.
+
+Runs directly on Node.js — no build step, no transpiler.
 
 ## Features
 
-- **Accurate spell checking** using US English dictionary
+- **Accurate spell checking** using the US English dictionary
 - **Line number tracking** for misspelled words
 - **Smart suggestions** with up to 3 alternatives per word
-- **Word cleaning** removes punctuation and special characters
+- **Apostrophe-aware** — `don't` is checked as-is, not stripped to `dont`
 - **Duplicate detection** consolidates repeated misspellings across lines
-- **Fast processing** with efficient file parsing
+- **JSON output** (`--json`) for scripting
+- **Exit codes** for CI pipelines: `0` = clean, `1` = misspellings found, `2` = usage/IO error
+
+## Requirements
+
+- Node.js 22.6+ (native TypeScript type stripping; tested on Node 26)
+- One runtime dependency: `typo-js`
 
 ## Installation
 
-1. Clone the repository:
 ```bash
 git clone <your-repo-url>
 cd spell-checker
-```
-
-2. Install dependencies:
-```bash
 npm install
-```
-
-3. Install required packages:
-```bash
-npm install typo-js @types/node typescript ts-node
 ```
 
 ## Usage
 
-Run the spell checker on any text file:
-
 ```bash
-npx ts-node index.ts <file-to-check.txt>
+node index.ts <file-to-check>
+
+# JSON output for scripting
+node index.ts --json <file-to-check>
 ```
 
 ### Examples
 
 ```bash
 # Check a document
-npx ts-node index.ts document.txt
+node index.ts document.txt
 
 # Check a markdown file
-npx ts-node index.ts README.md
+node index.ts README.md
 
-# Check source code comments
-npx ts-node index.ts script.js
+# Use in a script and react to the exit code
+node index.ts notes.txt || echo "found misspellings"
 ```
 
-## Sample Output
+### Sample Output
 
 ```
-'recieve' is misspelled on line(s): 5, 12. Suggestions: receive, relieve, deceive
-'seperate' is misspelled on line(s): 8. Suggestions: separate, desperate, temperate
+'recieve' is misspelled on line(s): 1. Suggestions: relieve, receive, recipe
+'gooattty' is misspelled on line(s): 1.
 ```
 
 Or when no errors are found:
+
 ```
 No errors, everything is good
 ```
 
+### JSON Output
+
+```json
+{
+  "misspellings": [
+    {
+      "word": "recieve",
+      "lines": [1],
+      "suggestions": ["relieve", "receive", "recipe"]
+    }
+  ]
+}
+```
+
 ## How It Works
 
-1. **File Reading**: Reads the specified file using Node.js fs module
-2. **Text Parsing**: Splits content into lines and extracts individual words
-3. **Word Cleaning**: Removes punctuation and special characters
-4. **Dictionary Check**: Validates each word against US English dictionary
-5. **Suggestion Generation**: Provides alternatives for misspelled words
-6. **Result Aggregation**: Groups same misspellings across multiple lines
+1. **File reading**: reads the specified file as UTF-8
+2. **Text parsing**: splits content into lines and extracts individual words
+3. **Word cleaning**: strips punctuation while preserving apostrophes; skips pure numbers
+4. **Dictionary check**: validates each word against the US English dictionary (typo-js, with dictionary data preloaded synchronously)
+5. **Suggestion generation**: provides up to 3 alternatives per misspelling
+6. **Result aggregation**: groups the same misspelling across multiple lines
 
-## Requirements
+## Development
 
-- Node.js 
-- TypeScript
-- Dependencies: `typo-js`, `@types/node`
+The logic lives in `checker.ts` (library) and `index.ts` (CLI wrapper).
 
-## Technical Details
+Run the test suite (Node's built-in test runner, zero test dependencies):
 
-- **Language**: TypeScript
-- **Dictionary**: US English (typo-js)
-- **File Encoding**: UTF-8
-- **Word Pattern**: Alphanumeric characters and underscores only
-
-## Contributing
-
-Contributions are welcome! Feel free to:
-- Add support for other languages
-- Implement configuration files
-- Add unit tests
-- Improve word detection algorithms
+```bash
+npm test
+```
 
 ## License
 
 MIT License - feel free to use this project for learning and development.
-
----

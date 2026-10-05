@@ -1,54 +1,48 @@
-import fs from "fs";
+#!/usr/bin/env node
+import fs from "node:fs";
+import process from "node:process";
+import { analyzeText, type Correction } from "./checker.ts";
 
-import Typo from "typo-js"
-var dictionary = new Typo("en_US", undefined, undefined, { dictionaryPath: "node_modules/typo-js/dictionaries" })
+const USAGE = "Usage: node index.ts [--json] <file-to-check>";
 
-const fileName = process.argv[2]
+// Exit codes: 0 = no misspellings, 1 = misspellings found, 2 = usage/IO error.
+function main(): void {
+  const args = process.argv.slice(2);
+  const asJson = args.includes("--json");
+  const fileName = args.find((arg) => arg !== "--json");
 
-if(!fileName){
-    console.error("Usage: spell-checker <file-to-check.extension>");
-    process.exit(1);
+  if (!fileName) {
+    console.error(USAGE);
+    process.exit(2);
+  }
+
+  let content: string;
+  try {
+    content = fs.readFileSync(fileName, "utf8");
+  } catch (err) {
+    console.error(`Error reading '${fileName}': ${(err as Error).message}`);
+    process.exit(2);
+  }
+
+  const corrections = analyzeText(content);
+
+  if (asJson) {
+    const misspellings = [...corrections].map(([word, info]): Correction & { word: string } => ({
+      word,
+      ...info,
+    }));
+    console.log(JSON.stringify({ misspellings }, null, 2));
+  } else if (corrections.size === 0) {
+    console.log("No errors, everything is good");
+  } else {
+    corrections.forEach((info, word) => {
+      const suggestions =
+        info.suggestions.length > 0 ? ` Suggestions: ${info.suggestions.join(", ")}` : "";
+      console.log(`'${word}' is misspelled on line(s): ${info.lines.join(", ")}.${suggestions}`);
+    });
+  }
+
+  process.exit(corrections.size === 0 ? 0 : 1);
 }
 
-const encoding = 'utf8'
-
-var content : string;
-var corrections = new Map<string, { lines: number[]; suggestions: string[] }>();
-fs.readFile(fileName, encoding, (err: NodeJS.ErrnoException | null, data: string) => {
-    if (err) {
-        console.log("Error while reading the content of the file", err);
-        return;
-    }
-    
-    const lines = data.split('\n')
-    
-    lines.forEach((line, lineIndex)=>{
-        //split the entire string line by spaces and filter them by indivisual words and trim them(remove spaces from left and right of the words if there any)
-        const words = line.split(/\s+/).filter((word)=>word.trim() !== '')
-        words.forEach((word)=>{
-            //remove chars not in the range [a-zA-Z0-9_])
-            const cleanWord = word.replace(/[^\w]/g, '');
-            if(cleanWord && !dictionary.check(cleanWord)){
-                const lineNumber = lineIndex+1;
-                const suggestions = dictionary.suggest(cleanWord);
-                if(corrections.has(cleanWord)){
-                    corrections.get(cleanWord)!.lines.push(lineNumber)
-                }
-                else{
-                    corrections.set(cleanWord, {
-                        lines: [lineNumber],
-                        suggestions: suggestions.slice(0, 3)
-                    })
-                }
-            }
-        })
-    })
-    if(!corrections.size){
-        console.log("No errors, everything is good")
-    }
-    else{
-        corrections.forEach((correctionInfo, word)=>{
-            console.log(`'${word}' is misspelled on line(s): ${correctionInfo.lines.join(', ')}. Suggestions: ${correctionInfo.suggestions.join(', ')}`)
-        })
-    }
-});
+main();
