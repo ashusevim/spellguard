@@ -6,9 +6,12 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ## Features
 
+- **SymSpell suggestions** — corrects typos that Hunspell-style suggesters miss (`teh→the`, `wrod→word`, `tommorow→tomorrow`), ranked by edit distance and word frequency, built lazily in ~1s
 - **Accurate spell checking** using the US English dictionary
+- **Identifier splitting** — `getSubcribeName` is checked as `get Subcribe Name`; camelCase, PascalCase, snake_case, kebab-case
+- **Markdown mode** — auto-enabled for `.md`/`.markdown`/`.mdx`: fenced code blocks, inline code, frontmatter, and HTML comments are skipped
+- **`--fix` / `--diff`** — apply top suggestions (case-preserving) or preview them
 - **Line number tracking** for misspelled words
-- **Smart suggestions** with up to 3 alternatives per word
 - **Apostrophe-aware** — `don't` is checked as-is, not stripped to `dont`
 - **Project wordlist** — `.spelldict` is picked up automatically; never configure, just add words
 - **Inline directives** — disable checking per line, per next line, or per block
@@ -48,6 +51,9 @@ node index.ts -                   # stdin, explicit
 | `--min-length <n>` | Skip words shorter than n characters |
 | `--add-word <a,b>` | Add word(s) to the wordlist and exit |
 | `--generate-dict` | Add all misspelled words from the input to `.spelldict`, exit 0 |
+| `--markdown` | Force Markdown mode (auto-enabled for `.md`/`.markdown`/`.mdx`) |
+| `--fix` | Replace every misspelling with its top suggestion (case-preserving) |
+| `--diff` | Print the changes `--fix` would make; write nothing |
 | `-h`, `--help` | Show help |
 
 ### Project wordlist
@@ -111,16 +117,17 @@ No errors, everything is good
 ## How It Works
 
 1. **Input**: reads the file (or stdin) as UTF-8
-2. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
-3. **Directives**: applies `spellcheck:` inline directives before scanning
-4. **Word cleaning**: strips punctuation while preserving apostrophes; skips pure numbers
-5. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously) plus the project wordlist
-6. **Suggestion generation**: provides up to 3 alternatives per misspelling
-7. **Result aggregation**: groups the same misspelling across multiple lines
+2. **Markdown mode**: blanks frontmatter, fenced code, inline code, and HTML comments at equal length (line/column offsets preserved)
+3. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
+4. **Directives**: applies `spellcheck:` inline directives before scanning
+5. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
+6. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously) plus the project wordlist
+7. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary ranks candidates by Damerau-Levenshtein distance, then common-word frequency
+8. **Result aggregation**: groups the same misspelling across lines
 
 ## Development
 
-The logic lives in `checker.ts` (library), `index.ts` (CLI), and `wordlist.ts` (wordlist file handling).
+The logic lives in `checker.ts` (scanning), `symspell.ts` (suggestion engine), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
 
 Run the test suite (Node's built-in test runner, zero test dependencies):
 
@@ -130,10 +137,11 @@ npm test
 
 ## Roadmap
 
-- SymSpell-based suggestion engine (better ranking than Hunspell-style suggesters)
-- camelCase / snake_case identifier splitting for source code
-- Markdown mode (skip fenced code blocks, inline code, links)
-- `--fix` with `--diff` preview
+- Multiple files / glob patterns with directory walking
+- `spellcheck.json` config file (words, ignorePaths, minLength)
+- Interactive mode (aspell-style y/n/a)
+- Additional locales (en_GB and beyond)
+- Commit-msg hook recipe and GitHub Action
 
 ## License
 

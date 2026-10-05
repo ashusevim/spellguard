@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyzeText, cleanWord } from "../checker.ts";
+import { analyzeText, scanText, cleanWord } from "../checker.ts";
 
 test("cleanWord strips punctuation but keeps apostrophes", () => {
   assert.equal(cleanWord('"hello,"'), "hello");
@@ -36,6 +36,12 @@ test("repeated misspellings consolidate line numbers", () => {
   const entry = result.get("recieve");
   assert.ok(entry, "expected 'recieve' to be flagged");
   assert.deepEqual(entry.lines, [1, 3]);
+});
+
+test("two occurrences on the same line report the line once", () => {
+  const result = analyzeText("teh teh\nrecieve");
+  assert.deepEqual(result.get("teh")?.lines, [1]);
+  assert.deepEqual(result.get("recieve")?.lines, [2]);
 });
 
 test("apostrophe words are checked as-is, not stripped", () => {
@@ -106,4 +112,36 @@ test("minLength skips short words", () => {
   const result = analyzeText("xy hello teh", { minLength: 3 });
   // "xy" skipped by length; "hello" is valid; "teh" still flagged.
   assert.deepEqual([...result.keys()], ["teh"]);
+});
+
+test("camelCase identifiers are split and sub-words are checked", () => {
+  const result = analyzeText("getSubcribeName fine");
+  assert.deepEqual([...result.keys()], ["Subcribe"]);
+  assert.deepEqual(result.get("Subcribe")?.lines, [1]);
+});
+
+test("snake_case identifiers are split", () => {
+  const result = analyzeText("my_varible = 1");
+  assert.deepEqual([...result.keys()], ["varible"]);
+});
+
+test("valid compound tokens are not flagged via identifier splitting", () => {
+  // whole token valid or all parts valid -> no flags
+  assert.equal(analyzeText("well-known e-mail don't").size, 0);
+});
+
+test("markdown option skips fenced code and checks prose", () => {
+  const md = "prose teh\n```\nteh in code\n```\nteh after";
+  const result = analyzeText(md, { markdown: true });
+  assert.deepEqual(result.get("teh")?.lines, [1, 5]);
+});
+
+test("scanText returns occurrences for --fix workflows", () => {
+  const occurrences = scanText("teh wrod\nteh");
+  assert.equal(occurrences.length, 3);
+  assert.deepEqual(
+    occurrences.map((o) => o.line),
+    [1, 1, 2],
+  );
+  for (const o of occurrences) assert.ok(Array.isArray(o.suggestions));
 });

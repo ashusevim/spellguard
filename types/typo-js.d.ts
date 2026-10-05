@@ -11,5 +11,7 @@ declare module "typo-js" {
     check(word: string): boolean;
     /** Returns up to `limit` suggestions for a misspelled word. */
     suggest(word: string, limit?: number): string[];
+    /** Raw dictionary table (word -> affix codes); used as suggestion vocabulary. */
+    dictionaryTable?: Record<string, unknown>;
   }
 }

@@ -31,7 +31,8 @@ test("CLI prints suggestions when available", () => {
   const result = run([path.join(root, "test", "fixtures", "suggestions.txt")]);
   assert.equal(result.status, 1);
   assert.match(result.stdout, /'teh' misspelled on line\(s\): 1\. Suggestions: .+/);
-  assert.match(result.stdout, /'recieve' misspelled on line\(s\): 1\. Suggestions: .+receive/);
+  // "receive" must be the top suggestion for "recieve"
+  assert.match(result.stdout, /'recieve' misspelled on line\(s\): 1\. Suggestions: receive,/);
 });
 
 test("CLI honors inline directives end to end", () => {
@@ -150,6 +151,57 @@ test("CLI loads default .spelldict from cwd", () => {
     cwd: dir, // .spelldict is discovered relative to the working directory
     input: "",
   });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /No errors, everything is good/);
+});
+
+test("CLI --fix replaces misspellings with top suggestion, preserving case", () => {
+  const dir = tmpDir();
+  const textFile = path.join(dir, "doc.txt");
+  fs.writeFileSync(textFile, "teh wrod\nTeh Cat\n");
+  const result = run(["--fix", textFile]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Fixed \d+ misspelling/);
+  const fixed = fs.readFileSync(textFile, "utf8");
+  assert.match(fixed, /the word/);
+  assert.match(fixed, /The Cat/);
+});
+
+test("CLI --fix on a clean file is a no-op with exit 0", () => {
+  const result = run(["--fix", path.join(root, "test", "fixtures", "clean.txt")]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Nothing to fix/);
+});
+
+test("CLI --diff prints changes without writing", () => {
+  const dir = tmpDir();
+  const textFile = path.join(dir, "doc.txt");
+  const original = "teh wrod\n";
+  fs.writeFileSync(textFile, original);
+  const result = run(["--diff", textFile]);
+  assert.equal(result.status, 1); // fixable misspellings found
+  assert.match(result.stdout, /--- /);
+  assert.match(result.stdout, /@@ line 1/);
+  assert.match(result.stdout, /-teh wrod/);
+  assert.match(result.stdout, /\+the word/);
+  assert.equal(fs.readFileSync(textFile, "utf8"), original, "file must be untouched");
+});
+
+test("CLI --markdown skips fenced code blocks", () => {
+  const dir = tmpDir();
+  const mdFile = path.join(dir, "doc.mdx"); // auto-detected by extension
+  fs.writeFileSync(mdFile, "prose teh\n```\nteh in code\n```\n");
+  const result = run([mdFile]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /'teh' misspelled on line\(s\): 1\./);
+  assert.doesNotMatch(result.stdout, /line\(s\): 1, 3/);
+});
+
+test("CLI --markdown flag forces markdown mode on plain files", () => {
+  const dir = tmpDir();
+  const txtFile = path.join(dir, "doc.txt");
+  fs.writeFileSync(txtFile, "prose\n~~~\nteh\n~~~\n");
+  const result = run(["--markdown", txtFile]);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /No errors, everything is good/);
 });

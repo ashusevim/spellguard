@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import process from "node:process";
-import { analyzeText } from "./checker.ts";
+import { analyzeText, scanText, type Occurrence } from "./checker.ts";
 import { appendWords, loadWordlist } from "./wordlist.ts";
 
 const DEFAULT_DICT = ".spelldict";
@@ -16,6 +16,10 @@ Options:
   --min-length <n>     Skip words shorter than n characters (default: 1)
   --add-word <a,b>     Add word(s) to the wordlist and exit
   --generate-dict      Add all misspelled words from the input to .spelldict, exit 0
+  --markdown           Force Markdown mode (code blocks, inline code, frontmatter
+                       skipped; auto-enabled for .md/.markdown/.mdx files)
+  --fix                Replace every misspelling with its top suggestion
+  --diff               Print the changes --fix would make; write nothing
 
 Wordlist: .spelldict in the current directory is loaded automatically if present.
 Inline directives: spellcheck:disable-line, spellcheck:disable-next-line,
@@ -23,19 +27,74 @@ Inline directives: spellcheck:disable-line, spellcheck:disable-next-line,
 
 Exit codes: 0 = no misspellings, 1 = misspellings found, 2 = usage/IO error.`;
 
-// Exit codes: 0 = no misspellings, 1 = misspellings found, 2 = usage/IO error.
+interface CliOptions {
+  json: boolean;
+  dictPaths: string[];
+  ignoreWords: string[];
+  minLength: number;
+  addWords: string[];
+  generateDict: boolean;
+  markdown: boolean;
+  fix: boolean;
+  diff: boolean;
+  useStdin: boolean;
+  file: string;
+}
+
+/** Applies the case pattern of `original` to `replacement`. */
+function matchCase(replacement: string, original: string): string {
+  if (original.length > 1 && original === original.toUpperCase()) return replacement.toUpperCase();
+  if (original[0] === original[0]?.toUpperCase()) {
+    return replacement[0].toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+function escapeRegex(word: string): string {
+  return word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Computes line rewrites: line index (0-based) -> new line text, using the
+ * top suggestion for every misspelled word on that line.
+ */
+function computeFixes(lines: string[], occurrences: Occurrence[]): Map<number, string> {
+  // Group: line -> word(lower) -> replacement (case matched per match).
+  const byLine = new Map<number, Map<string, string>>();
+  for (const { word, line, suggestions } of occurrences) {
+    if (suggestions.length === 0) continue;
+    let words = byLine.get(line - 1);
+    if (!words) byLine.set(line - 1, (words = new Map()));
+    if (!words.has(word.toLowerCase())) words.set(word.toLowerCase(), suggestions[0]);
+  }
+
+  const fixes = new Map<number, string>();
+  for (const [lineIndex, words] of byLine) {
+    let fixed = lines[lineIndex];
+    for (const [word, replacement] of words) {
+      const pattern = new RegExp(`\\b${escapeRegex(word)}\\b`, "gi");
+      fixed = fixed.replace(pattern, (match) => matchCase(replacement, match));
+    }
+    if (fixed !== lines[lineIndex]) fixes.set(lineIndex, fixed);
+  }
+  return fixes;
+}
+
 function main(): void {
   const args = process.argv.slice(2);
 
-  const opts = {
+  const opts: CliOptions = {
     json: false,
-    dictPaths: [] as string[],
-    ignoreWords: [] as string[],
+    dictPaths: [],
+    ignoreWords: [],
     minLength: 1,
-    addWords: [] as string[],
+    addWords: [],
     generateDict: false,
+    markdown: false,
+    fix: false,
+    diff: false,
     useStdin: false,
-    file: "" as string,
+    file: "",
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -72,6 +131,15 @@ function main(): void {
         break;
       case "--generate-dict":
         opts.generateDict = true;
+        break;
+      case "--markdown":
+        opts.markdown = true;
+        break;
+      case "--fix":
+        opts.fix = true;
+        break;
+      case "--diff":
+        opts.diff = true;
         break;
       case "-":
       case "--stdin":
@@ -111,6 +179,9 @@ function main(): void {
     opts.useStdin = true; // piped input with no file argument
   }
 
+  // Markdown mode: forced by flag, auto-enabled for Markdown file extensions.
+  if (!opts.markdown && /\.(md|markdown|mdx)$/i.test(opts.file)) opts.markdown = true;
+
   // Load wordlists: default .spelldict (if present) plus any --dict paths.
   const allDictPaths = [...opts.dictPaths];
   if (fs.existsSync(DEFAULT_DICT)) allDictPaths.unshift(DEFAULT_DICT);
@@ -136,11 +207,58 @@ function main(): void {
     process.exit(2);
   }
 
-  const corrections = analyzeText(content, {
+  const checkOptions = {
     extraWords,
     ignoreWords: opts.ignoreWords,
     minLength: opts.minLength,
-  });
+    markdown: opts.markdown,
+  };
+
+  // --fix / --diff: rewrite lines with top suggestions.
+  if (opts.fix || opts.diff) {
+    const occurrences = scanText(content, checkOptions);
+    const fixable = occurrences.filter((o) => o.suggestions.length > 0);
+    const unfixable = new Set(
+      occurrences.filter((o) => o.suggestions.length === 0).map((o) => o.word),
+    );
+    const lines = content.split("\n");
+    const fixes = computeFixes(lines, occurrences);
+
+    if (opts.diff) {
+      if (fixes.size > 0) {
+        console.log(`--- ${label}`);
+        console.log(`+++ ${label}`);
+        for (const [lineIndex, fixed] of [...fixes].sort((a, b) => a[0] - b[0])) {
+          console.log(`@@ line ${lineIndex + 1}`);
+          console.log(`-${lines[lineIndex]}`);
+          console.log(`+${fixed}`);
+        }
+      }
+      process.exit(fixable.length > 0 ? 1 : 0);
+    }
+
+    if (fixes.size === 0) {
+      if (unfixable.size > 0) {
+        console.error(`No suggestions for: ${[...unfixable].join(", ")}`);
+      } else {
+        console.log("Nothing to fix");
+      }
+      process.exit(unfixable.size > 0 ? 1 : 0);
+    }
+
+    for (const [lineIndex, fixed] of fixes) lines[lineIndex] = fixed;
+    if (!opts.useStdin) fs.writeFileSync(opts.file, lines.join("\n"));
+    else process.stdout.write(lines.join("\n"));
+
+    console.log(`Fixed ${fixable.length} misspelling(s) in ${label}`);
+    if (unfixable.size > 0) {
+      console.error(`No suggestions for: ${[...unfixable].join(", ")}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  const corrections = analyzeText(content, checkOptions);
 
   if (opts.generateDict) {
     const added = appendWords(dictTarget, [...corrections.keys()]);
