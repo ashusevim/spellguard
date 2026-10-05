@@ -127,7 +127,7 @@ $ node index.ts --agent --consistency doc.md
 4. [review] line 3: 'xyzzyq' has no suggestion — rewrite or bless: node index.ts --add-word xyzzyq
 ```
 
-Confidence is deterministic: `high` = top suggestion at edit distance 1, `medium` = distance 2, `review` = no suggestion or a consistency finding.
+Confidence is deterministic: `high` = one-off misspelling with top suggestion at edit distance 1, `medium` = distance 2, `review` = no suggestion, a consistency finding, **or a word repeated across multiple lines** (repeated "misspellings" are usually intentional vocabulary — proper nouns, tool names — so the agent verifies instead of trusting one suggestion for every occurrence).
 
 **Learning loop:** every `--fix` persists the pairs it applied to `.spellcorrections` (`typo=fix` per line). Learned corrections become the top suggestion on all future runs — override the ranking any time by editing the file:
 
@@ -194,7 +194,7 @@ No errors, everything is good
 4. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
 5. **Directives**: applies `spellcheck:` inline directives before scanning
 6. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
-7. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously), the project wordlist, and the repo vocabulary
+7. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously), the project wordlist, the repo vocabulary, and a built-in supplement of ~200 common tech words hunspell lacks (`config`, `auth`, `msg`, `roadmap`, ...). Dot-segmented tokens (`Node.js`, `package.json`) are valid when every segment is valid
 8. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary plus repo words ranks candidates by Damerau-Levenshtein distance, then common-word frequency
 9. **Consistency** (`--consistency`): brand-casing and separator-variant checks over the same preprocessed tokens
 10. **Result aggregation**: groups the same misspelling across lines

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import Typo from "typo-js";
 import { SymSpell, COMMON_WORDS } from "./symspell.ts";
 import { stripMarkdown } from "./markdown.ts";
+import { TECH_WORDS } from "./techdict.ts";
 
 export interface Misspelling {
   lines: number[];
@@ -74,7 +75,7 @@ function isNumber(word: string): boolean {
  */
 export function splitIdentifiers(token: string): string[] {
   return token
-    .split(/[_\-/]+/)
+    .split(/[_\-/.]+/)
     .flatMap((part) => part.split(/(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/))
     .filter((part) => part !== "");
 }
@@ -153,11 +154,32 @@ export function scanText(text: string, options: CheckOptions = {}): Occurrence[]
       const whole = cleanWord(token);
       if (!whole) continue;
 
+      // Dot-segmented tokens ("Node.js", "package.json", "README.md") are
+      // valid when every segment is a valid word.
+      if (token.includes(".")) {
+        const segments = token.split(".");
+        const allValid = segments.every((segment) => {
+          const s = cleanWord(segment).toLowerCase();
+          return (
+            s !== "" &&
+            (dictionary.check(s) || TECH_WORDS.has(s) || known.has(s) || ignored.has(s))
+          );
+        });
+        if (allValid) continue;
+      }
+
       // A valid whole token is accepted as-is: covers "don't", "e-mail",
       // "well-known" and other forms that identifier splitting would mangle.
       if (whole.length >= minLength) {
         const wholeKey = whole.toLowerCase();
-        if (ignored.has(wholeKey) || known.has(wholeKey) || dictionary.check(whole)) continue;
+        if (
+          ignored.has(wholeKey) ||
+          known.has(wholeKey) ||
+          TECH_WORDS.has(wholeKey) ||
+          dictionary.check(whole)
+        ) {
+          continue;
+        }
       }
 
       // Invalid as a whole: check its identifier sub-words.
@@ -166,7 +188,14 @@ export function scanText(text: string, options: CheckOptions = {}): Occurrence[]
         if (clean.length < minLength || isNumber(clean) || /^\d/.test(clean)) continue;
 
         const key = clean.toLowerCase();
-        if (ignored.has(key) || known.has(key) || dictionary.check(clean)) continue;
+        if (
+          ignored.has(key) ||
+          known.has(key) ||
+          TECH_WORDS.has(key) ||
+          dictionary.check(clean)
+        ) {
+          continue;
+        }
 
         const { suggestions, topDistance } = getSuggestions(clean, extraWords, corrections);
         occurrences.push({ word: clean, line: lineNumber, suggestions, topDistance });

@@ -316,6 +316,27 @@ test("--agent emits a numbered, confidence-ordered task list", () => {
   assert.match(out, /--add-word xyzzyq/);
 });
 
+test("--agent downgrades words repeated across lines to review", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  fs.writeFileSync(doc, "recieve here\nrecieve there\n");
+  const result = run(["--agent", "--no-repo-vocab", doc]);
+  assert.equal(result.status, 1);
+  const out = result.stdout;
+  assert.doesNotMatch(out, /\[fix:/); // repeated word must not auto-fix
+  assert.match(out, /appears on 2 lines/);
+  assert.match(out, /--add-word recieve/);
+  assert.match(out, /suggested fix: 'receive'/);
+});
+
+test("--agent keeps one-off misspellings as fixable", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  fs.writeFileSync(doc, "teh wrod\n");
+  const result = run(["--agent", "--no-repo-vocab", doc]);
+  assert.match(result.stdout, /\[fix:high\] line 1: replace 'teh' with 'the'/);
+});
+
 test("--agent on a clean file prints NO ISSUES and exits 0", () => {
   const result = run(["--agent", path.join(root, "test", "fixtures", "clean.txt")]);
   assert.equal(result.status, 0);

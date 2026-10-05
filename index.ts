@@ -430,6 +430,10 @@ function renderAgentTaskList(
   const seen = new Set<string>();
 
   for (const [word, info] of corrections) {
+    // A misspelling used on multiple lines is usually intentional vocabulary
+    // (a proper noun, a tool name), not a one-off typo - downgrade to review
+    // so the agent verifies instead of trusting one suggestion for all lines.
+    const repeated = info.lines.length >= 2;
     for (const line of info.lines) {
       const dedupeKey = `${word.toLowerCase()}:${line}`;
       if (seen.has(dedupeKey)) continue;
@@ -440,6 +444,12 @@ function renderAgentTaskList(
           confidence: 2,
           line,
           text: `[review] line ${line}: '${word}' has no suggestion — rewrite or bless: ${cliCommand(opts, ["--add-word", word])}`,
+        });
+      } else if (repeated) {
+        tasks.push({
+          confidence: 2,
+          line,
+          text: `[review] line ${line}: '${word}' appears on ${info.lines.length} lines — if intentional, bless: ${cliCommand(opts, ["--add-word", word])}; suggested fix: '${info.suggestions[0]}'`,
         });
       } else {
         const confidence: "high" | "medium" = info.topDistance === 1 ? "high" : "medium";
