@@ -199,7 +199,7 @@ No errors, everything is good
 ## Development
 
 ```bash
-git clone https://github.com/wanony/Spell-checker.git
+git clone https://github.com/ashusevim/Spell-checker.git
 cd Spell-checker
 npm install
 ```

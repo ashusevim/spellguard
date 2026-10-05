@@ -37,12 +37,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wanony/Spell-checker.git"
+    "url": "git+https://github.com/ashusevim/Spell-checker.git"
   },
   "bugs": {
-    "url": "https://github.com/wanony/Spell-checker/issues"
+    "url": "https://github.com/ashusevim/Spell-checker/issues"
   },
-  "homepage": "https://github.com/wanony/Spell-checker#readme",
+  "homepage": "https://github.com/ashusevim/Spell-checker#readme",
   "dependencies": {
     "typo-js": "^1.2.5"
   },
