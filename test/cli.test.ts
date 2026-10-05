@@ -262,3 +262,39 @@ test("--verbose reports repo vocabulary stats on stderr", () => {
   });
   assert.match(verbose.stderr, /repo vocab: \+\d+ words/);
 });
+
+test("--consistency flags terminology issues and affects exit code", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  // "co-operate" passes the spelling check (its collapsed form "cooperate" is
+  // a dictionary word), so the consistency lint is what catches the drift.
+  fs.writeFileSync(doc, "Please cooperate fully.\nPlease co-operate fully.\n");
+  const result = run(["--consistency", "--no-repo-vocab", doc]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /terminology: 'cooperate' vs 'co-operate' — prefer 'cooperate'/);
+  assert.match(result.stdout, /line\(s\): 1, 2/);
+  assert.doesNotMatch(result.stdout, /misspelled/);
+});
+
+test("without --consistency no terminology lines appear", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  fs.writeFileSync(doc, "Please cooperate fully.\nPlease co-operate fully.\n");
+  const result = run(["--no-repo-vocab", doc]);
+  assert.equal(result.status, 0); // spelling-wise both forms collapse to "cooperate"
+  assert.doesNotMatch(result.stdout, /terminology:/);
+});
+
+test("--json includes consistency findings when requested", () => {
+  const dir = tmpDir();
+  const doc = path.join(dir, "doc.txt");
+  fs.writeFileSync(doc, "Github and back-end\nbackend\n");
+  const result = run(["--json", "--consistency", "--no-repo-vocab", doc]);
+  assert.equal(result.status, 1);
+  const parsed = JSON.parse(result.stdout) as {
+    consistency: { kind: string; recommendation: string; forms: { form: string }[] }[];
+  };
+  const kinds = parsed.consistency.map((f) => f.kind);
+  assert.ok(kinds.includes("casing"), `expected casing finding: ${result.stdout}`);
+  assert.ok(kinds.includes("variants"), `expected variants finding: ${result.stdout}`);
+});

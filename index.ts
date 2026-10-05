@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { analyzeText, scanText, type Occurrence } from "./checker.ts";
+import { findInconsistencies, type ConsistencyFinding } from "./consistency.ts";
 import { appendWords, loadWordlist } from "./wordlist.ts";
 import { harvestRepoVocab } from "./repo-vocab.ts";
 
@@ -25,6 +26,8 @@ Options:
   --no-repo-vocab      Don't derive vocabulary from the surrounding project
   --repo-root <dir>    Project root for repo vocabulary (default: cwd)
   --vocab-count <n>    Occurrences needed to bless a code word (default: 3)
+  --consistency        Also run terminology-consistency checks (Github vs
+                       GitHub, backend vs back-end)
   --verbose            Print repo vocabulary stats to stderr
 
 Wordlist: .spelldict in the current directory is loaded automatically if present.
@@ -46,6 +49,7 @@ interface CliOptions {
   repoVocab: boolean;
   repoRoot: string;
   vocabCount: number;
+  consistency: boolean;
   verbose: boolean;
   useStdin: boolean;
   file: string;
@@ -106,6 +110,7 @@ function main(): void {
     repoVocab: true,
     repoRoot: "",
     vocabCount: 3,
+    consistency: false,
     verbose: false,
     useStdin: false,
     file: "",
@@ -172,6 +177,9 @@ function main(): void {
       }
       case "--verbose":
         opts.verbose = true;
+        break;
+      case "--consistency":
+        opts.consistency = true;
         break;
       case "-":
       case "--stdin":
@@ -306,6 +314,9 @@ function main(): void {
   }
 
   const corrections = analyzeText(content, checkOptions);
+  const consistencyFindings: ConsistencyFinding[] = opts.consistency
+    ? findInconsistencies(content, { markdown: opts.markdown })
+    : [];
 
   if (opts.generateDict) {
     const added = appendWords(dictTarget, [...corrections.keys()]);
@@ -315,8 +326,19 @@ function main(): void {
 
   if (opts.json) {
     const misspellings = [...corrections].map(([word, info]) => ({ word, ...info }));
-    console.log(JSON.stringify({ file: label, count: misspellings.length, misspellings }, null, 2));
-  } else if (corrections.size === 0) {
+    console.log(
+      JSON.stringify(
+        {
+          file: label,
+          count: misspellings.length,
+          misspellings,
+          ...(opts.consistency ? { consistency: consistencyFindings } : {}),
+        },
+        null,
+        2,
+      ),
+    );
+  } else if (corrections.size === 0 && consistencyFindings.length === 0) {
     console.log("No errors, everything is good");
   } else {
     corrections.forEach((info, word) => {
@@ -326,9 +348,17 @@ function main(): void {
         `${label}: '${word}' misspelled on line(s): ${info.lines.join(", ")}.${suggestions}`,
       );
     });
+    for (const finding of consistencyFindings) {
+      const forms = finding.forms.map((f) => `'${f.form}'`).join(" vs ");
+      const allLines = [...new Set(finding.forms.flatMap((f) => f.lines))].sort((a, b) => a - b);
+      console.log(
+        `${label}: terminology: ${forms} — prefer '${finding.recommendation}' (line(s): ${allLines.join(", ")})`,
+      );
+    }
   }
 
-  process.exit(corrections.size === 0 ? 0 : 1);
+  const issueCount = corrections.size + consistencyFindings.length;
+  process.exit(issueCount === 0 ? 0 : 1);
 }
 
 function splitWords(value: string): string[] {

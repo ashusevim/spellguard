@@ -108,8 +108,55 @@ export function scanText(text: string, options: CheckOptions = {}): Occurrence[]
   const { extraWords = [], ignoreWords = [], minLength = 1, markdown = false } = options;
   const known = new Set(extraWords.map((word) => word.toLowerCase()));
   const ignored = new Set(ignoreWords.map((word) => word.toLowerCase()));
-  const source = markdown ? stripMarkdown(text) : text;
   const occurrences: Occurrence[] = [];
+
+  for (const { line: lineNumber, tokens } of preprocessLines(text, markdown)) {
+    for (const token of tokens) {
+      const whole = cleanWord(token);
+      if (!whole) continue;
+
+      // A valid whole token is accepted as-is: covers "don't", "e-mail",
+      // "well-known" and other forms that identifier splitting would mangle.
+      if (whole.length >= minLength) {
+        const wholeKey = whole.toLowerCase();
+        if (ignored.has(wholeKey) || known.has(wholeKey) || dictionary.check(whole)) continue;
+      }
+
+      // Invalid as a whole: check its identifier sub-words.
+      for (const part of splitIdentifiers(token)) {
+        const clean = cleanWord(part);
+        if (clean.length < minLength || isNumber(clean) || /^\d/.test(clean)) continue;
+
+        const key = clean.toLowerCase();
+        if (ignored.has(key) || known.has(key) || dictionary.check(clean)) continue;
+
+        occurrences.push({
+          word: clean,
+          line: lineNumber,
+          suggestions: getSuggestions(clean, extraWords),
+        });
+      }
+    }
+  }
+
+  return occurrences;
+}
+
+export interface ProcessedLine {
+  /** 1-based line number in the original text. */
+  line: number;
+  /** Whitespace tokens after noise stripping, directive filtering, etc. */
+  tokens: string[];
+}
+
+/**
+ * Shared preprocessing pipeline for all checks: Markdown blanking, inline
+ * directives, and noise stripping (URLs, emails, hex). Line numbers map
+ * back to the original text.
+ */
+export function preprocessLines(text: string, markdown = false): ProcessedLine[] {
+  const source = markdown ? stripMarkdown(text) : text;
+  const processed: ProcessedLine[] = [];
 
   let disabledBlock = false;
   let disableNextLines = 0;
@@ -139,35 +186,10 @@ export function scanText(text: string, options: CheckOptions = {}): Occurrence[]
     }
 
     const tokens = stripNoise(line).split(/\s+/).filter((token) => token.trim() !== "");
-    for (const token of tokens) {
-      const whole = cleanWord(token);
-      if (!whole) continue;
-
-      // A valid whole token is accepted as-is: covers "don't", "e-mail",
-      // "well-known" and other forms that identifier splitting would mangle.
-      if (whole.length >= minLength) {
-        const wholeKey = whole.toLowerCase();
-        if (ignored.has(wholeKey) || known.has(wholeKey) || dictionary.check(whole)) continue;
-      }
-
-      // Invalid as a whole: check its identifier sub-words.
-      for (const part of splitIdentifiers(token)) {
-        const clean = cleanWord(part);
-        if (clean.length < minLength || isNumber(clean) || /^\d/.test(clean)) continue;
-
-        const key = clean.toLowerCase();
-        if (ignored.has(key) || known.has(key) || dictionary.check(clean)) continue;
-
-        occurrences.push({
-          word: clean,
-          line: lineIndex + 1,
-          suggestions: getSuggestions(clean, extraWords),
-        });
-      }
-    }
+    processed.push({ line: lineIndex + 1, tokens });
   });
 
-  return occurrences;
+  return processed;
 }
 
 /** Analyzes text and returns one aggregated entry per misspelled word. */

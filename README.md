@@ -6,6 +6,7 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ## Features
 
+- **Terminology-consistency lint** (`--consistency`) — catches `Github` vs `GitHub`, `backend` vs `back-end`, `Javascript` vs `JavaScript`: the casing/separator drift that AI-generated docs are notorious for. Deterministic, list-free for separator variants, 50ms.
 - **Repo-native vocabulary** — the tool learns your project's language automatically: dependency names from `package.json`/`Cargo.toml`/`go.mod`/`pyproject.toml`/`requirements.txt` are trusted, and code identifiers + filenames are blessed at 3+ occurrences. Zero config, deterministic, no LLM.
 - **SymSpell suggestions** — corrects typos that Hunspell-style suggesters miss (`teh→the`, `wrod→word`, `tommorow→tomorrow`), ranked by edit distance and word frequency, built lazily in ~1s
 - **Accurate spell checking** using the US English dictionary
@@ -58,6 +59,7 @@ node index.ts -                   # stdin, explicit
 | `--no-repo-vocab` | Don't derive vocabulary from the surrounding project |
 | `--repo-root <dir>` | Project root for repo vocabulary (default: cwd) |
 | `--vocab-count <n>` | Occurrences needed to bless a code word (default: 3) |
+| `--consistency` | Also run terminology-consistency checks (`Github` vs `GitHub`, `backend` vs `back-end`) |
 | `--verbose` | Print repo vocabulary stats to stderr |
 | `-h`, `--help` | Show help |
 
@@ -80,6 +82,21 @@ Before checking, the tool reads the surrounding project and derives its vocabula
 - **Code and filenames are counted**: identifier sub-words (`kubernetsClient` → `kubernets`) are blessed at 3+ occurrences across the repo — so a one-off typo in the code never becomes vocabulary
 
 Dependency directories (`node_modules`, `target`, `vendor`, ...), lockfiles, and minified output are skipped; the walk is capped at 1500 files. Disable with `--no-repo-vocab`, retarget with `--repo-root <dir>`, tune the threshold with `--vocab-count <n>`, inspect with `--verbose`.
+
+### Terminology consistency (`--consistency`)
+
+Two deterministic checks, zero LLM:
+
+- **Brand casing** — ~75 curated terms (`GitHub`, `TypeScript`, `iOS`, `Node.js`, `OAuth`, ...) flagged when written in the wrong case. ALL-CAPS renderings (headings) and plural/possessive stems (`APIs`, `GitHub's`) are accepted.
+- **Separator variants** — purely structural, no list: the same word written with different separators (`backend`/`back-end`, `x86-64`/`x86_64`, `don't`/`dont`) is flagged, recommending the most frequent form. Case-only differences (`Web` vs `web`) are never flagged.
+
+```
+$ node index.ts --consistency doc.md
+doc.md: terminology: 'Github' — prefer 'GitHub' (line(s): 3)
+doc.md: terminology: 'backend' vs 'back-end' — prefer 'backend' (line(s): 3)
+```
+
+Findings respect Markdown mode and `spellcheck:` directives, appear in `--json` output under `consistency`, and count toward the exit code.
 
 Add words as you go:
 
@@ -138,11 +155,12 @@ No errors, everything is good
 6. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
 7. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously), the project wordlist, and the repo vocabulary
 8. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary plus repo words ranks candidates by Damerau-Levenshtein distance, then common-word frequency
-9. **Result aggregation**: groups the same misspelling across lines
+9. **Consistency** (`--consistency`): brand-casing and separator-variant checks over the same preprocessed tokens
+10. **Result aggregation**: groups the same misspelling across lines
 
 ## Development
 
-The logic lives in `checker.ts` (scanning), `symspell.ts` (suggestion engine), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
+The logic lives in `checker.ts` (scanning + shared preprocessing), `symspell.ts` (suggestion engine), `consistency.ts` (terminology lint), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
 
 Run the test suite (Node's built-in test runner, zero test dependencies):
 
@@ -152,8 +170,8 @@ npm test
 
 ## Roadmap
 
-- Terminology-consistency lint (`Github` vs `GitHub`, `backend` vs `back-end`)
 - Agent-facing output (`--agent` task-list format) and auto-blessing on `--fix`
+- Custom brand/terminology lists in `.spelldict` or `spellcheck.json`
 - Multiple files / glob patterns with directory walking
 - `spellcheck.json` config file (words, ignorePaths, minLength)
 - Interactive mode (aspell-style y/n/a)
