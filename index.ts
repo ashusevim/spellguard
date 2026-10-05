@@ -10,8 +10,14 @@ import { harvestRepoVocab } from "./repo-vocab.ts";
 const DEFAULT_DICT = ".spelldict";
 const DEFAULT_CORRECTIONS = ".spellcorrections";
 
-const USAGE = `Usage: node index.ts [options] <file | ->
-       cat file | node index.ts
+// How to invoke this CLI in instructions we print (agent task lists, help):
+// the installed bin name when running as one, the dev invocation otherwise.
+const CLI_NAME = process.argv[1]?.replace(/\\/g, "/").includes("spellguard")
+  ? "spellguard"
+  : "node index.ts";
+
+const USAGE = `Usage: spellguard [options] <file | ->        (dev: node index.ts)
+       cat file | spellguard
 
 Options:
   --json               Output structured JSON
@@ -480,7 +486,7 @@ function cliCommand(opts: CliOptions, args: string[]): string {
   if (opts.consistency) flags.push("--consistency");
   if (opts.markdown) flags.push("--markdown");
   if (opts.correctionsPath) flags.push("--corrections", opts.correctionsPath);
-  return ["node index.ts", ...flags, ...args].join(" ");
+  return [CLI_NAME, ...flags, ...args].join(" ");
 }
 
 main();

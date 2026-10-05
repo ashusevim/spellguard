@@ -32,16 +32,16 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ```bash
 # global CLI
-npm install -g spellcheck-cli
+npm install -g spellguard
 
 # or run without installing
-npx spellcheck-cli README.md
+npx spellguard README.md
 
 # or as a project dependency (CI, scripts)
-npm install -D spellcheck-cli
+npm install -D spellguard
 ```
 
-All commands below also work as `spellcheck-cli` / `npx spellcheck-cli` in place of `node index.ts`.
+All commands below also work as `spellguard` / `npx spellguard` in place of `node index.ts`.
 
 ## Usage
 

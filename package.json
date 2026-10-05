@@ -1,11 +1,11 @@
 {
-  "name": "spellcheck-cli",
+  "name": "spellguard",
   "version": "0.1.0",
   "description": "Deterministic spell checker for code and docs: repo-native vocabulary, SymSpell suggestions, terminology-consistency lint, agent-friendly output. Fully local, one dependency.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "spellcheck-cli": "dist/index.js"
+    "spellguard": "dist/index.js"
   },
   "engines": {
     "node": ">=20.6.0"
