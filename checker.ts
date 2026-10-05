@@ -35,14 +35,11 @@ export interface CheckOptions {
 
 const MAX_SUGGESTIONS = 3;
 
-// Resolve the dictionary relative to this file so the CLI works
-// from any working directory.
-const dictionariesPath = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "node_modules",
-  "typo-js",
-  "dictionaries",
-);
+// Resolve the dictionary through the module system so it works in every
+// install layout: running from a checkout, npx, or installed as a
+// dependency (where npm may flatten node_modules).
+const typoEntryPath = fileURLToPath(import.meta.resolve("typo-js"));
+const dictionariesPath = path.join(path.dirname(typoEntryPath), "dictionaries");
 
 const affData = fs.readFileSync(path.join(dictionariesPath, "en_US", "en_US.aff"), "utf8");
 const wordsData = fs.readFileSync(path.join(dictionariesPath, "en_US", "en_US.dic"), "utf8");
@@ -85,7 +82,7 @@ export function splitIdentifiers(token: string): string[] {
 // Lazily built: only constructed when the first suggestion is requested.
 let suggestionEngine: SymSpell | null = null;
 let engineVocabKey = "";
-const suggestionCache = new Map<string, string[]>();
+const suggestionCache = new Map<string, { suggestions: string[]; topDistance?: number }>();
 
 function getSuggestions(
   word: string,
@@ -102,10 +99,7 @@ function getSuggestions(
 
   if (!suggestionEngine || engineVocabKey !== extraWords.join("\u0000")) {
     const vocabKey = extraWords.join("\u0000");
-    const vocab = Object.keys(
-      (dictionary as { dictionaryTable?: Record<string, unknown> }).dictionaryTable ?? {},
-    );
-    suggestionEngine = new SymSpell([...vocab, ...extraWords], 2, {
+    suggestionEngine = new SymSpell([...dictionaryVocabulary(), ...extraWords], 2, {
       commonWords: COMMON_WORDS,
       isValid: (candidate) => dictionary.check(candidate) || extraWords.includes(candidate),
     });
@@ -128,6 +122,17 @@ function getSuggestions(
   const result = { suggestions, topDistance };
   suggestionCache.set(cacheKey, result);
   return result;
+}
+
+/**
+ * The dictionary's raw word list, used as suggestion vocabulary.
+ * typo-js < 1.3 exposes dictionaryTable as an object; >= 1.3 uses a Map.
+ */
+function dictionaryVocabulary(): string[] {
+  const table = (dictionary as { dictionaryTable?: Record<string, unknown> | Map<string, unknown> })
+    .dictionaryTable;
+  if (!table) return [];
+  return table instanceof Map ? [...table.keys()] : Object.keys(table);
 }
 
 /** Scans text and returns every misspelling occurrence with its line number. */

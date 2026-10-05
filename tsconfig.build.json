@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["index.ts", "checker.ts", "symspell.ts", "consistency.ts", "repo-vocab.ts", "markdown.ts", "wordlist.ts", "types/**/*.d.ts"]
+}

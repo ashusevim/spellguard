@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { analyzeText, scanText, type Occurrence } from "./checker.ts";
+import { analyzeText, scanText, type Occurrence, type Misspelling } from "./checker.ts";
 import { findInconsistencies, type ConsistencyFinding } from "./consistency.ts";
 import { appendWords, loadWordlist, loadCorrections, appendCorrections } from "./wordlist.ts";
 import { harvestRepoVocab } from "./repo-vocab.ts";
@@ -416,7 +416,7 @@ interface AgentTask {
 
 function renderAgentTaskList(
   label: string,
-  corrections: Map<string, { lines: number[]; suggestions: string[] }>,
+  corrections: Map<string, Misspelling>,
   findings: ConsistencyFinding[],
   opts: CliOptions,
 ): string {

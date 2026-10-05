@@ -25,16 +25,23 @@ Runs directly on Node.js — no build step, no transpiler.
 
 ## Requirements
 
-- Node.js 22.6+ (native TypeScript type stripping; tested on Node 26)
+- Node.js 20.6+ (installed CLI) — Node 23.6+ to run the TypeScript source directly
 - One runtime dependency: `typo-js`
 
 ## Installation
 
 ```bash
-git clone <your-repo-url>
-cd spell-checker
-npm install
+# global CLI
+npm install -g spellcheck-cli
+
+# or run without installing
+npx spellcheck-cli README.md
+
+# or as a project dependency (CI, scripts)
+npm install -D spellcheck-cli
 ```
+
+All commands below also work as `spellcheck-cli` / `npx spellcheck-cli` in place of `node index.ts`.
 
 ## Usage
 
@@ -191,12 +198,18 @@ No errors, everything is good
 
 ## Development
 
-The logic lives in `checker.ts` (scanning + shared preprocessing), `symspell.ts` (suggestion engine), `consistency.ts` (terminology lint), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist files), and `index.ts` (CLI).
+```bash
+git clone https://github.com/wanony/Spell-checker.git
+cd Spell-checker
+npm install
+```
 
-Run the test suite (Node's built-in test runner, zero test dependencies):
+The TypeScript source runs directly on Node 23.6+ (no build step for development). The logic lives in `checker.ts` (scanning + shared preprocessing), `symspell.ts` (suggestion engine), `consistency.ts` (terminology lint), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist + learned-correction files), and `index.ts` (CLI).
 
 ```bash
-npm test
+npm test          # test suite (Node's built-in test runner, zero test dependencies)
+npm run build     # compile dist/ for publishing (tsc, devDependency only)
+npm publish       # runs tests + build via prepublishOnly
 ```
 
 ## Roadmap

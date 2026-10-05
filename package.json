@@ -1,21 +1,53 @@
 {
-  "name": "spell-checker",
-  "version": "1.0.0",
-  "description": "Command-line spell checker for text files (US English)",
+  "name": "spellcheck-cli",
+  "version": "0.1.0",
+  "description": "Deterministic spell checker for code and docs: repo-native vocabulary, SymSpell suggestions, terminology-consistency lint, agent-friendly output. Fully local, one dependency.",
   "type": "module",
-  "main": "index.ts",
+  "main": "dist/index.js",
   "bin": {
-    "spell-checker": "index.ts"
+    "spellcheck-cli": "dist/index.js"
   },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "start": "node index.ts",
-    "test": "node --test test/"
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test test/",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test && npm run build"
   },
+  "keywords": [
+    "spell",
+    "spellcheck",
+    "spellchecker",
+    "typo",
+    "cli",
+    "linter",
+    "symspell",
+    "markdown",
+    "consistency",
+    "terminology",
+    "spell-checker"
+  ],
+  "author": "Wanony",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wanony/Spell-checker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wanony/Spell-checker/issues"
+  },
+  "homepage": "https://github.com/wanony/Spell-checker#readme",
   "dependencies": {
     "typo-js": "^1.2.5"
   },
   "devDependencies": {
-    "@types/node": "^24.0.10"
+    "@types/node": "^24.0.10",
+    "typescript": "~5.9.0"
   }
 }
