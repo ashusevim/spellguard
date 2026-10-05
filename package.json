@@ -37,12 +37,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ashusevim/Spell-checker.git"
+    "url": "git+https://github.com/ashusevim/spellguard.git"
   },
   "bugs": {
-    "url": "https://github.com/ashusevim/Spell-checker/issues"
+    "url": "https://github.com/ashusevim/spellguard/issues"
   },
-  "homepage": "https://github.com/ashusevim/Spell-checker#readme",
+  "homepage": "https://github.com/ashusevim/spellguard#readme",
   "dependencies": {
     "typo-js": "^1.2.5"
   },

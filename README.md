@@ -1,6 +1,9 @@
-# TypeScript Spell Checker
+# spellguard
 
-A command-line spell checker built with TypeScript that analyzes text files and provides spelling suggestions. Dictionary recall with a zero-config, low-false-positive experience — fully local, one runtime dependency.
+[![CI](https://github.com/ashusevim/spellguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ashusevim/spellguard/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/spellguard)](https://www.npmjs.com/package/spellguard)
+
+Deterministic spell checker for code and docs: repo-native vocabulary, SymSpell suggestions, terminology-consistency lint, agent-friendly output. Fully local, one runtime dependency.
 
 Runs directly on Node.js — no build step, no transpiler.
 
@@ -199,7 +202,7 @@ No errors, everything is good
 ## Development
 
 ```bash
-git clone https://github.com/ashusevim/Spell-checker.git
+git clone https://github.com/ashusevim/spellguard.git
 cd Spell-checker
 npm install
 ```
