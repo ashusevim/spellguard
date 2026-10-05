@@ -16,7 +16,7 @@
   "scripts": {
     "start": "node index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.ts\"",
     "prepack": "npm run build",
     "prepublishOnly": "npm test && npm run build"
   },
