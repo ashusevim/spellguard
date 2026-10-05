@@ -3,156 +3,142 @@
 [![CI](https://github.com/ashusevim/spellguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ashusevim/spellguard/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/spellguard)](https://www.npmjs.com/package/spellguard)
 
-Deterministic spell checker for code and docs: repo-native vocabulary, SymSpell suggestions, terminology-consistency lint, agent-friendly output. Fully local, one runtime dependency.
+**A spell checker that learns your project's language — and stays out of your way.**
 
-Runs directly on Node.js — no build step, no transpiler.
+Fully local, deterministic, no config required, one runtime dependency.
 
-## Features
+```bash
+$ npx spellguard --consistency doc.md
+doc.md: 'recieve' misspelled on line(s): 2. Suggestions: receive, relieve, recede
+doc.md: 'tommorow' misspelled on line(s): 3. Suggestions: tomorrow
+doc.md: terminology: 'Github' — prefer 'GitHub' (line(s): 1)
+doc.md: terminology: 'backend' vs 'back-end' — prefer 'backend' (line(s): 1, 2)
+```
 
-- **Agent loop** (`--agent`) — emits a numbered, confidence-ordered task list (`[fix:high]`/`[fix:medium]`/`[review]`) with embedded self-service commands, so AI agents can consume it, act, and re-check. `--fix` persists every pair it applies to `.spellcorrections`, and learned corrections become the top suggestion on future runs — the tool gets more accurate with every use.
-- **Terminology-consistency lint** (`--consistency`) — catches `Github` vs `GitHub`, `backend` vs `back-end`, `Javascript` vs `JavaScript`: the casing/separator drift that AI-generated docs are notorious for. Deterministic, list-free for separator variants, 50ms.
-- **Repo-native vocabulary** — the tool learns your project's language automatically: dependency names from `package.json`/`Cargo.toml`/`go.mod`/`pyproject.toml`/`requirements.txt` are trusted, and code identifiers + filenames are blessed at 3+ occurrences. Zero config, deterministic, no LLM.
-- **SymSpell suggestions** — corrects typos that Hunspell-style suggesters miss (`teh→the`, `wrod→word`, `tommorow→tomorrow`), ranked by edit distance and word frequency, built lazily in ~1s
-- **Accurate spell checking** using the US English dictionary
-- **Identifier splitting** — `getSubcribeName` is checked as `get Subcribe Name`; camelCase, PascalCase, snake_case, kebab-case
-- **Markdown mode** — auto-enabled for `.md`/`.markdown`/`.mdx`: fenced code blocks, inline code, frontmatter, and HTML comments are skipped
-- **`--fix` / `--diff`** — apply top suggestions (case-preserving) or preview them
-- **Line number tracking** for misspelled words
-- **Apostrophe-aware** — `don't` is checked as-is, not stripped to `dont`
-- **Project wordlist** — `.spelldict` is picked up automatically; never configure, just add words
-- **Inline directives** — disable checking per line, per next line, or per block
-- **Noise filtering** — URLs, emails, and hex blobs (hashes, ids) are never flagged
-- **JSON output** (`--json`) for scripting
-- **stdin support** — `cat file | spellchecker`
-- **Exit codes** for CI pipelines: `0` = clean, `1` = misspellings found, `2` = usage/IO error
+That's the whole pitch: real typos get caught, your project's terms never do, and everything runs in milliseconds on your machine.
 
-## Requirements
+## Why spellguard
 
-- Node.js 20.6+ (installed CLI) — Node 23.6+ to run the TypeScript source directly
-- One runtime dependency: `typo-js`
+Existing tools force a bad trade:
+
+- **Dictionary checkers** (aspell, cspell) flag every project term you haven't configured — the "configuration tax" grows forever
+- **Typo-list checkers** (codespell, typos) only catch typos someone already listed
+- **AI checkers** are slow, non-deterministic, and send your text to a server
+
+spellguard takes a different path — it **derives your project's vocabulary from the repo itself**, then layers deterministic checks on top. No config, no network, no LLM.
+
+## What it does
+
+**1. Learns your repo (zero config, on by default)**
+
+Dependency names from `package.json` / `Cargo.toml` / `go.mod` / `pyproject.toml` / `requirements.txt` are trusted automatically. Words from your code and filenames (`kubernetsClient` → `kubernets`) are blessed after 3+ occurrences — so one-off typos never become vocabulary.
+
+**2. Corrects typos other checkers miss**
+
+Suggestions come from a SymSpell engine (edit distance + word frequency ranking), not Hunspell's:
+
+```
+teh      → the        (Hunspell often suggests: th, eh, tech)
+wrod     → word
+tommorow → tomorrow
+```
+
+**3. Checks code like code**
+
+Identifiers are split before checking — `getSubcribeName` flags `Subcribe`. camelCase, PascalCase, snake_case, kebab-case. In Markdown, fenced code blocks, inline code, and frontmatter are skipped automatically.
+
+**4. Catches terminology drift (`--consistency`)**
+
+The casing/separator inconsistency that AI-generated docs are notorious for — see the example above.
+
+**5. Works with AI agents (`--agent`)**
+
+Emits a numbered, confidence-ordered task list instead of prose:
+
+```
+$ spellguard --agent doc.md
+# SPELLCHECK TASK LIST
+# file: doc.md
+# issues: 4 (3 fixable, 1 review)
+# self-service: spellguard --fix doc.md
+1. [fix:high] line 2: replace 'recieve' with 'receive' (alternatives: relieve, recede)
+2. [fix:high] line 3: replace 'teh' with 'the' (alternatives: tea, tee)
+3. [fix:medium] line 3: replace 'tommorow' with 'tomorrow'
+4. [review] line 9: 'xyzzyq' has no suggestion — rewrite or bless: spellguard --add-word xyzzyq
+```
+
+Confidence is deterministic: `[fix:high]` = one-off typo, edit distance 1 · `[fix:medium]` = distance 2 · `[review]` = no suggestion, a consistency finding, or a word repeated across lines (repeated "misspellings" are usually intentional vocabulary — verify, don't auto-fix).
+
+**6. Gets smarter every time you use it**
+
+`--fix` applies top suggestions (case-preserving) and persists them to `.spellcorrections` — learned corrections become the top suggestion on future runs:
+
+```bash
+$ spellguard --fix doc.md
+Fixed 2 misspelling(s) in doc.md
+Learned 2 correction(s) to .spellcorrections
+```
+
+The loop: `--agent` → apply fixes (or `--fix` directly) → re-run until `# NO ISSUES`. Words you decide to keep get blessed with `--add-word` and never flag again.
 
 ## Installation
 
 ```bash
-# global CLI
-npm install -g spellguard
-
-# or run without installing
-npx spellguard README.md
-
-# or as a project dependency (CI, scripts)
-npm install -D spellguard
+npm install -g spellguard    # global CLI
+npx spellguard file.md       # or run without installing
+npm install -D spellguard    # or as a dev dependency (CI)
 ```
 
-All commands below also work as `spellguard` / `npx spellguard` in place of `node index.ts`.
+Requires Node.js 20.6+. One runtime dependency (`typo-js`). No network calls, ever.
 
 ## Usage
 
 ```bash
-node index.ts [options] <file>
-cat file | node index.ts          # stdin
-node index.ts -                   # stdin, explicit
+spellguard [options] <file>
+cat file | spellguard          # stdin
+spellguard --fix src/**/*.md   # see Options below
 ```
 
 ### Options
 
 | Option | Effect |
 | --- | --- |
-| `--json` | Structured JSON output |
-| `--dict <path>` | Load an extra wordlist file (repeatable, one word per line) |
-| `--ignore <a,b,c>` | Words to never flag (repeatable, case-insensitive) |
-| `--min-length <n>` | Skip words shorter than n characters |
-| `--add-word <a,b>` | Add word(s) to the wordlist and exit |
-| `--generate-dict` | Add all misspelled words from the input to `.spelldict`, exit 0 |
-| `--markdown` | Force Markdown mode (auto-enabled for `.md`/`.markdown`/`.mdx`) |
 | `--fix` | Replace every misspelling with its top suggestion (case-preserving) |
-| `--diff` | Print the changes `--fix` would make; write nothing |
+| `--diff` | Preview what `--fix` would do; write nothing |
+| `--consistency` | Run terminology checks (`Github` vs `GitHub`, `backend` vs `back-end`) |
+| `--agent` | Agent task list: numbered, action-tagged, confidence-ordered |
+| `--json` | Structured JSON output |
+| `--ignore <a,b,c>` | Words to never flag (repeatable, case-insensitive) |
+| `--dict <path>` | Extra wordlist file (repeatable, one word per line) |
+| `--add-word <a,b>` | Bless word(s) into the project wordlist and exit |
+| `--generate-dict` | Bless every word the current run flagged, exit 0 |
+| `--markdown` | Force Markdown mode (auto-enabled for `.md`/`.markdown`/`.mdx`) |
+| `--min-length <n>` | Skip words shorter than n characters |
 | `--no-repo-vocab` | Don't derive vocabulary from the surrounding project |
 | `--repo-root <dir>` | Project root for repo vocabulary (default: cwd) |
 | `--vocab-count <n>` | Occurrences needed to bless a code word (default: 3) |
-| `--consistency` | Also run terminology-consistency checks (`Github` vs `GitHub`, `backend` vs `back-end`) |
-| `--agent` | Agent-oriented task list: numbered, action-tagged, confidence-ordered |
 | `--corrections <path>` | Learned-corrections file (default: `.spellcorrections`) |
-| `--verbose` | Print repo vocabulary stats to stderr |
+| `--verbose` | Print repo-vocabulary stats to stderr |
 | `-h`, `--help` | Show help |
 
-### Project wordlist
+### Exit codes
 
-A `.spelldict` file in the current directory is loaded automatically (one word per line, `#` comments allowed). Words are matched case-insensitively:
+`0` clean · `1` issues found · `2` usage/IO error — so `spellguard . || echo typos` just works in scripts and CI.
+
+## Fine-tuning (when you need it)
+
+**Project wordlist** — `.spelldict` in your repo, picked up automatically:
 
 ```
 # .spelldict
-kubernetes
-Kubernetes   # duplicate, ignored
 MyCompanyName
+kubernetes
 ```
 
-### Repo-native vocabulary (on by default)
-
-Before checking, the tool reads the surrounding project and derives its vocabulary:
-
-- **Manifests are trusted**: dependency names, project names, and keywords from `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, and `requirements.txt`
-- **Code and filenames are counted**: identifier sub-words (`kubernetsClient` → `kubernets`) are blessed at 3+ occurrences across the repo — so a one-off typo in the code never becomes vocabulary
-
-Dependency directories (`node_modules`, `target`, `vendor`, ...), lockfiles, and minified output are skipped; the walk is capped at 1500 files. Disable with `--no-repo-vocab`, retarget with `--repo-root <dir>`, tune the threshold with `--vocab-count <n>`, inspect with `--verbose`.
-
-### Terminology consistency (`--consistency`)
-
-Two deterministic checks, zero LLM:
-
-- **Brand casing** — ~75 curated terms (`GitHub`, `TypeScript`, `iOS`, `Node.js`, `OAuth`, ...) flagged when written in the wrong case. ALL-CAPS renderings (headings) and plural/possessive stems (`APIs`, `GitHub's`) are accepted.
-- **Separator variants** — purely structural, no list: the same word written with different separators (`backend`/`back-end`, `x86-64`/`x86_64`, `don't`/`dont`) is flagged, recommending the most frequent form. Case-only differences (`Web` vs `web`) are never flagged.
-
-```
-$ node index.ts --consistency doc.md
-doc.md: terminology: 'Github' — prefer 'GitHub' (line(s): 3)
-doc.md: terminology: 'backend' vs 'back-end' — prefer 'backend' (line(s): 3)
-```
-
-Findings respect Markdown mode and `spellcheck:` directives, appear in `--json` output under `consistency`, and count toward the exit code.
-
-### The agent loop (`--agent` + learned corrections)
-
-`--agent` renders findings as a task list built for AI agents (or humans who like checklists):
-
-```
-$ node index.ts --agent --consistency doc.md
-# SPELLCHECK TASK LIST
-# file: doc.md
-# issues: 3 (2 fixable, 1 review)
-# self-service: node index.ts --consistency --fix doc.md
-1. [fix:high] line 1: replace 'teh' with 'the' (alternatives: tea, tee)
-2. [fix:high] line 1: replace 'wrod' with 'word' (alternatives: prod, trod)
-3. [review] consistency line 2: 'Github' should be 'GitHub'
-4. [review] line 3: 'xyzzyq' has no suggestion — rewrite or bless: node index.ts --add-word xyzzyq
-```
-
-Confidence is deterministic: `high` = one-off misspelling with top suggestion at edit distance 1, `medium` = distance 2, `review` = no suggestion, a consistency finding, **or a word repeated across multiple lines** (repeated "misspellings" are usually intentional vocabulary — proper nouns, tool names — so the agent verifies instead of trusting one suggestion for every occurrence).
-
-**Learning loop:** every `--fix` persists the pairs it applied to `.spellcorrections` (`typo=fix` per line). Learned corrections become the top suggestion on all future runs — override the ranking any time by editing the file:
-
-```
-# .spellcorrections
-teh=the
-wrod=word
-```
-
-The loop for AI agents: run `--agent` → apply fixes (or `--fix` directly) → re-run until `# NO ISSUES`. Words the agent decides to keep get blessed with `--add-word`, and the tool never flags them again.
-
-Add words as you go:
-
-```bash
-node index.ts --add-word kubernets,MyOrg
-node index.ts --generate-dict notes.txt   # bless every word it just flagged
-```
-
-### Inline directives
-
-Put them anywhere in a line — comments, prose, anywhere:
+**Inline directives** — anywhere in a line, any language's comments:
 
 ```js
 teh spellcheck:disable-line          // this line is skipped
-teh                                  // flagged
 // spellcheck:disable-next-line
 teh                                  // skipped
 // spellcheck:off
@@ -161,69 +147,52 @@ teh                                  // skipped
 teh                                  // flagged again
 ```
 
-### Sample Output
+**Auto-skipped noise** — URLs, emails, hex hashes, version numbers, and a built-in supplement of ~200 common tech words hunspell lacks (`config`, `auth`, `msg`, `roadmap`, ...). `don't` is checked as-is; `Node.js` is validated segment by segment.
 
-```
-notes.txt: 'recieve' misspelled on line(s): 1, 12. Suggestions: relieve, receive, recipe
-notes.txt: 'gooattty' misspelled on line(s): 8.
-```
+## How it works
 
-Or when no errors are found:
+1. Reads the file (or stdin) as UTF-8
+2. Harvests repo vocabulary: trusted manifest words + code/filename words at 3+ occurrences
+3. Preprocesses: Markdown blanking (line numbers preserved), `spellcheck:` directives, noise stripping (URLs, emails, hex)
+4. Checks tokens: whole token first (`well-known`, `don't` pass), then identifier sub-words — against the US English dictionary, your wordlist, repo vocabulary, and the tech-word supplement
+5. Ranks suggestions with a SymSpell deletion index (~120k words, Damerau-Levenshtein + frequency)
+6. Optionally runs the consistency lint over the same tokens
+7. Aggregates by word with line numbers
 
-```
-No errors, everything is good
-```
+## Comparison
 
-### JSON Output
-
-```json
-{
-  "file": "notes.txt",
-  "count": 1,
-  "misspellings": [
-    { "word": "recieve", "lines": [1, 12], "suggestions": ["relieve", "receive", "recipe"] }
-  ]
-}
-```
-
-## How It Works
-
-1. **Input**: reads the file (or stdin) as UTF-8
-2. **Repo vocabulary**: harvests trusted manifest words and count-verified code words from the surrounding project
-3. **Markdown mode**: blanks frontmatter, fenced code, inline code, and HTML comments at equal length (line/column offsets preserved)
-4. **Noise filtering**: strips URLs, emails, `0x` hex, and long hex runs per line
-5. **Directives**: applies `spellcheck:` inline directives before scanning
-6. **Token checking**: each whitespace token is checked whole first (so `well-known` and `don't` pass), then split into identifier sub-words and checked individually
-7. **Dictionary check**: validates words against the US English dictionary (typo-js, preloaded synchronously), the project wordlist, the repo vocabulary, and a built-in supplement of ~200 common tech words hunspell lacks (`config`, `auth`, `msg`, `roadmap`, ...). Dot-segmented tokens (`Node.js`, `package.json`) are valid when every segment is valid
-8. **Suggestions**: a SymSpell deletion index over the ~120k-word vocabulary plus repo words ranks candidates by Damerau-Levenshtein distance, then common-word frequency
-9. **Consistency** (`--consistency`): brand-casing and separator-variant checks over the same preprocessed tokens
-10. **Result aggregation**: groups the same misspelling across lines
+| | spellguard | aspell | codespell / typos | cspell |
+| --- | --- | --- | --- | --- |
+| Catches unknown typos | ✅ | ✅ | ❌ (known list only) | ✅ |
+| Learns project vocabulary automatically | ✅ | ❌ | ❌ | ❌ (manual config) |
+| Terminology-consistency lint | ✅ | ❌ | ❌ | ❌ |
+| Suggestion quality (edit distance + frequency) | ✅ SymSpell | ✅ | n/a | Hunspell-style |
+| False positives out of the box | low | medium | low | high |
+| Agent-friendly output + learning loop | ✅ | ❌ | partial | ❌ |
+| Runs fully local, deterministic | ✅ | ✅ | ✅ | ✅ |
 
 ## Development
 
 ```bash
 git clone https://github.com/ashusevim/spellguard.git
-cd Spell-checker
+cd spellguard
 npm install
-```
-
-The TypeScript source runs directly on Node 23.6+ (no build step for development). The logic lives in `checker.ts` (scanning + shared preprocessing), `symspell.ts` (suggestion engine), `consistency.ts` (terminology lint), `repo-vocab.ts` (repo vocabulary harvest), `markdown.ts` (Markdown preprocessing), `wordlist.ts` (wordlist + learned-correction files), and `index.ts` (CLI).
-
-```bash
-npm test          # test suite (Node's built-in test runner, zero test dependencies)
-npm run build     # compile dist/ for publishing (tsc, devDependency only)
+npm test          # 104 tests, Node's built-in runner, zero test dependencies
+npm run build     # compile dist/ (TypeScript is a devDependency only)
 npm publish       # runs tests + build via prepublishOnly
 ```
 
+Source layout: `checker.ts` (scanning + preprocessing) · `symspell.ts` (suggestion engine) · `consistency.ts` (terminology lint) · `repo-vocab.ts` (repo vocabulary) · `markdown.ts` (Markdown preprocessing) · `techdict.ts` (tech-word supplement) · `wordlist.ts` (wordlists + learned corrections) · `index.ts` (CLI).
+
 ## Roadmap
 
-- Custom brand/terminology lists in `.spelldict` or `spellcheck.json`
+- Custom brand/terminology lists
 - Multiple files / glob patterns with directory walking
-- `spellcheck.json` config file (words, ignorePaths, minLength)
+- `spellguard.json` config file
 - Interactive mode (aspell-style y/n/a)
 - Additional locales (en_GB and beyond)
-- Commit-msg hook recipe and GitHub Action
+- GitHub Action + pre-commit recipe
 
 ## License
 
-MIT License - feel free to use this project for learning and development.
+MIT
